@@ -1,0 +1,100 @@
+task: detection
+
+model: RTDETR
+criterion: SetCriterion
+postprocessor: RTDETRPostProcessor
+
+
+RTDETR: 
+  backbone_type: PResNet # Options: PResNet, HierarchicalConvSSM
+  backbone: PResNet # This will be dynamically set by the config loader
+  encoder: HybridEncoder
+  decoder: RTDETRTransformer
+  multi_scale: [480, 512, 544, 576, 608, 640, 640, 640, 672, 704, 736, 768, 800]
+
+PResNet:
+  depth: 50
+  variant: d
+  freeze_at: 0
+  return_idx: [1, 2, 3]
+  num_stages: 4
+  freeze_norm: True
+  pretrained: True 
+
+HierarchicalConvSSM:
+  embed_dim: 96 
+  depths: [2, 2, 6, 2]  # Corresponds to C2, C3, C4, C5 stages
+  # dims are implicitly defined by embed_dim and patch merging in the HierarchicalConvSSM class
+  d_state: 16
+  d_conv: 3
+  expand: 2
+  dt_rank: "auto"
+  drop_path_rate: 0.1
+  patch_norm: True
+  out_indices: [1, 2, 3] # Output P3, P4, P5 features (0-indexed from [P2,P3,P4,P5])
+  # For RT-DETR, HybridEncoder expects 3 feature maps. 
+  # If out_indices=[1,2,3], it means P3, P4, P5. 
+  # P3 channels: embed_dim * 2 = 192
+  # P4 channels: embed_dim * 4 = 384
+  # P5 channels: embed_dim * 8 = 768
+  # These should match the in_channels for HybridEncoder if HierarchicalConvSSM is used.
+
+HybridEncoder:
+  in_channels: [512, 1024, 2048]
+  feat_strides: [8, 16, 32]
+
+  # intra
+  hidden_dim: 256
+  use_encoder_idx: [2]
+  num_encoder_layers: 1
+  nhead: 8
+  dim_feedforward: 1024
+  dropout: 0.
+  enc_act: 'gelu'
+  pe_temperature: 10000
+  
+  # cross
+  expansion: 1.0
+  depth_mult: 1
+  act: 'silu'
+
+  # eval
+  eval_spatial_size: [640, 640]
+
+
+RTDETRTransformer:
+  feat_channels: [256, 256, 256]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 256
+  num_levels: 3
+
+  num_queries: 300
+
+  num_decoder_layers: 6
+  num_denoising: 100
+  
+  eval_idx: -1
+  eval_spatial_size: [640, 640]
+
+
+use_focal_loss: True
+
+RTDETRPostProcessor:
+  num_top_queries: 300
+
+
+SetCriterion:
+  weight_dict: {loss_vfl: 1, loss_bbox: 5, loss_giou: 2,}
+  losses: ['vfl', 'boxes', ]
+  alpha: 0.75
+  gamma: 2.0
+
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_giou: 2}
+    # use_focal_loss: True 
+    alpha: 0.25
+    gamma: 2.0
+
+
+

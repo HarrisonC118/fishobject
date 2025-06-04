@@ -1,0 +1,39 @@
+# num_classes: 91
+# remap_mscoco_category: True
+
+train_dataloader: 
+  dataset: 
+    return_masks: False  # 是否返回掩码，通常用于实例分割任务
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}  # 随机光度失真，概率为0.5
+        - {type: RandomZoomOut, fill: 0}  # 随机缩放，填充值为0
+        - {type: RandomIoUCrop, p: 0.8}  # 随机IoU裁剪，概率为0.8
+        - {type: SanitizeBoundingBox, min_size: 1}  # 清理边界框，最小尺寸为1
+        - {type: RandomHorizontalFlip}  # 随机水平翻转
+        - {type: Resize, size: [640, 640], }  # 调整大小到640x640
+        # - {type: Resize, size: 639, max_size: 640}  # 调整大小到639，最大尺寸640
+        # - {type: PadToSize, spatial_size: 640}  # 填充到640大小
+        - {type: ToImageTensor}  # 转换为图像张量
+        - {type: ConvertDtype}  # 转换数据类型
+        - {type: SanitizeBoundingBox, min_size: 1}  # 清理边界框，最小尺寸为1
+        - {type: ConvertBox, out_fmt: 'cxcywh', normalize: True}  # 转换边界框格式为中心点宽高，并归一化
+  shuffle: True  # 是否打乱数据
+  batch_size: 3  # 批量大小
+  num_workers: 4  # 工作线程数量
+  collate_fn: default_collate_fn  # 数据整理函数
+
+
+val_dataloader:
+  dataset: 
+    transforms:
+      ops: 
+        # - {type: Resize, size: 639, max_size: 640}  # 可选：调整大小到639，最大尺寸640
+        # - {type: PadToSize, spatial_size: 640}  # 可选：填充到640大小
+        - {type: Resize, size: [640, 640]}  # 调整大小到640x640
+        - {type: ToImageTensor}  # 转换为图像张量
+        - {type: ConvertDtype}  # 转换数据类型
+  shuffle: False  # 验证集不打乱数据
+  batch_size: 3  # 验证集批量大小
+  num_workers: 4  # 验证集工作线程数量
+  collate_fn: default_collate_fn  # 验证集数据整理函数

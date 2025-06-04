@@ -1,0 +1,19 @@
+# 多GPU训练时候，控制是否在分布式训练中使用同步批归一化（Synchronized Batch Normalization）
+sync_bn: True
+# 多GPU训练时候，查找未使用的参数
+find_unused_parameters: False
+
+# 混合精度 float 16 和float 32混合
+use_amp: False
+# 梯度缩放器
+scaler:
+  type: GradScaler
+  enabled: True
+
+#指数移动平均（Exponential Moving Average, EMA）
+use_ema: False
+ema:
+  type: ModelEMA
+  decay: 0.9999
+  warmups: 2000
+
