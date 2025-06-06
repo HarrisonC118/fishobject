@@ -1,13 +1,13 @@
 """TensorBoard Logger for RTDETR
 
-This module provides TensorBoard logging functionality for the RTDETR project.
+专注于记录目标检测模型的关键性能指标，包括AP、AR、F1和其他重要指标。
 """
 
 import os
-import logging
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+import torch
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -17,23 +17,16 @@ except ImportError:
         "Please install tensorboard: pip install tensorboard"
     )
 
-logger = logging.getLogger(__name__)
-
 
 class TensorboardLogger:
-    """TensorBoard Logger for RTDETR.
-    
-    This class provides a wrapper around TensorBoard's SummaryWriter to log
-    training and evaluation metrics during model training.
-    """
+    """专注于目标检测指标的TensorBoard记录器"""
     
     def __init__(self, log_dir=None, enabled=True):
-        """Initialize TensorBoard logger.
+        """初始化TensorBoard记录器
         
         Args:
-            log_dir (str, optional): Directory where TensorBoard logs will be written.
-                If None, logs will be written to 'runs/' directory. Defaults to None.
-            enabled (bool, optional): Whether to enable TensorBoard logging. Defaults to True.
+            log_dir (str, optional): TensorBoard日志目录，默认为'runs/'
+            enabled (bool, optional): 是否启用TensorBoard记录，默认为True
         """
         self.enabled = enabled
         self.writer = None
@@ -46,15 +39,15 @@ class TensorboardLogger:
                 
             os.makedirs(log_dir, exist_ok=True)
             self.writer = SummaryWriter(log_dir=str(log_dir))
-            print(f"TensorBoard logger initialized at {log_dir}")
+            print(f"TensorBoard记录器已初始化，日志目录：{log_dir}")
     
     def log_metrics(self, metrics, step, prefix=""):
-        """Log metrics to TensorBoard.
+        """记录通用指标
         
         Args:
-            metrics (dict): Dictionary of metrics to log.
-            step (int): Global step value to record.
-            prefix (str, optional): Prefix for metric names. Defaults to "".
+            metrics (dict): 指标字典
+            step (int): 全局步数
+            prefix (str, optional): 指标名称前缀
         """
         if not self.enabled or self.writer is None:
             return
@@ -63,391 +56,334 @@ class TensorboardLogger:
             if isinstance(v, (float, int)):
                 self.writer.add_scalar(f"{prefix}{k}", v, step)
     
-    def log_gradient_norm(self, model, step):
-        """Log gradient norms for model parameters.
+    def log_detection_metrics(self, coco_eval, step):
+        """记录目标检测关键指标
 
         Args:
-            model: PyTorch model
-            step: Global step value to record
-        """
-        if not self.enabled or self.writer is None:
-            return
-
-        total_norm = 0.0
-        for p in model.parameters():
-            if p.grad is not None:
-                param_norm = p.grad.detach().data.norm(2)
-                total_norm += param_norm.item() ** 2
-        total_norm = total_norm ** 0.5
-        self.writer.add_scalar('train/gradient_norm', total_norm, step)
-
-    def log_optimizer_stats(self, optimizer, step):
-        """Log optimizer statistics.
-
-        Args:
-            optimizer: PyTorch optimizer
-            step: Global step value to record
-        """
-        if not self.enabled or self.writer is None:
-            return
-
-        for i, param_group in enumerate(optimizer.param_groups):
-            self.writer.add_scalar(f'train/learning_rate/group_{i}', param_group['lr'], step)
-    
-    def log_evaluation_metrics(self, coco_eval, step):
-        """Log COCO evaluation metrics.
-
-        Args:
-            coco_eval: COCO evaluator object
-            step: Global step value to record
-        """
-        if not self.enabled or self.writer is None:
-            return
-
-        metrics = {
-            'mAP': coco_eval.stats[0],  # AP at IoU=0.50:0.95
-            'mAP_50': coco_eval.stats[1],  # AP at IoU=0.50
-            'mAP_75': coco_eval.stats[2],  # AP at IoU=0.75
-            'mAP_small': coco_eval.stats[3],  # AP for small objects
-            'mAP_medium': coco_eval.stats[4],  # AP for medium objects
-            'mAP_large': coco_eval.stats[5],  # AP for large objects
-            'AR_max_1': coco_eval.stats[6],  # AR for 1 detection
-            'AR_max_10': coco_eval.stats[7],  # AR for 10 detections
-            'AR_max_100': coco_eval.stats[8],  # AR for 100 detections
-            'AR_small': coco_eval.stats[9],  # AR for small objects
-            'AR_medium': coco_eval.stats[10],  # AR for medium objects
-            'AR_large': coco_eval.stats[11],  # AR for large objects
-        }
-
-        # Log all metrics with 'val/' prefix
-        for name, value in metrics.items():
-            self.writer.add_scalar(f'val/{name}', value, step)
-
-        # Log per-category AP if available
-        if hasattr(coco_eval, 'eval') and 'precision' in coco_eval.eval:
-            precisions = coco_eval.eval['precision']
-            # Take mean over IoU thresholds, recall thresholds, and area ranges
-            category_ap = np.mean(precisions, axis=(0, 1, 2))
-            for idx, ap in enumerate(category_ap):
-                category_id = coco_eval.params.catIds[idx]
-                category_name = coco_eval.cocoGt.cats[category_id]['name']
-                self.writer.add_scalar(f'val/category_AP/{category_name}', ap, step)
-    
-    def log_histogram(self, tag, values, step):
-        """Log histogram to TensorBoard.
-        
-        Args:
-            tag (str): Data identifier.
-            values (torch.Tensor): Values to build histogram.
-            step (int): Global step value to record.
-        """
-        if not self.enabled or self.writer is None:
-            return
-            
-        print(f"Writing histogram with tag {tag} at step {step}")
-        self.writer.add_histogram(tag, values, step)
-    
-    def log_model_info(self, model, step=0):
-        """Log model size, parameter count, and structure to TensorBoard.
-        
-        Args:
-            model (torch.nn.Module): The model to log information about.
-            step (int, optional): Global step value to record. Defaults to 0.
-        """
-        if not self.enabled or self.writer is None:
-            return
-            
-        # Calculate total parameters
-        total_params = sum(p.numel() for p in model.parameters())
-        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        
-        # Calculate model size in MB
-        model_size = sum(p.numel() * p.element_size() for p in model.parameters()) / (1024 * 1024)
-        
-        # Log static model info under a separate tag group
-        # These metrics only need to be logged once as they don't change during training
-        self.writer.add_scalar("model_static_info/total_parameters", total_params, 0)
-        self.writer.add_scalar("model_static_info/trainable_parameters", trainable_params, 0)
-        self.writer.add_scalar("model_static_info/model_size_MB", model_size, 0)
-        
-        # Log model structure
-        try:
-            import torch
-            from torch.utils.tensorboard._pytorch_graph import graph
-            
-            # Determine input shape based on model type
-            # RTDETR typically uses input shape (batch_size, 3, height, width)
-            input_shape = (1, 3, 640, 640)
-            
-            # Create a dummy input tensor with the specified shape
-            dummy_input = torch.zeros(input_shape, device=next(model.parameters()).device)
-            
-            # Add graph to TensorBoard with strict=False to handle dict outputs
-            self.writer.add_graph(model, dummy_input, use_strict_trace=False)
-            
-            # Log model components structure
-            if hasattr(model, 'backbone') and hasattr(model, 'encoder') and hasattr(model, 'decoder'):
-                print("Logging detailed RTDETR model structure...")
-                
-                # Log backbone structure if possible
-                try:
-                    self.writer.add_graph(model.backbone, dummy_input, verbose=False)
-                except Exception as e:
-                    print(f"Could not log backbone structure: {e}")
-                
-                # Log encoder structure if possible
-                try:
-                    # Get features from backbone for encoder input
-                    with torch.no_grad():
-                        backbone_features = model.backbone(dummy_input)
-                    self.writer.add_graph(model.encoder, backbone_features, verbose=False)
-                except Exception as e:
-                    print(f"Could not log encoder structure: {e}")
-                
-                # Log decoder structure if possible
-                try:
-                    # Get features from encoder for decoder input
-                    with torch.no_grad():
-                        backbone_features = model.backbone(dummy_input)
-                        encoder_features = model.encoder(backbone_features)
-                    self.writer.add_graph(model.decoder, (encoder_features, None), verbose=False)
-                except Exception as e:
-                    print(f"Could not log decoder structure: {e}")
-            
-            print(f"Logged model structure to TensorBoard with input shape {input_shape}")
-        except Exception as e:
-            print(f"Failed to log model structure: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        print(f"Logged model info: Size={model_size:.2f}MB, Parameters={total_params:,} (Trainable: {trainable_params:,})")
-    
-    def log_graph(self, model, input_shape=(1, 3, 640, 640)):
-        """Log model graph to TensorBoard.
-        
-        Args:
-            model (torch.nn.Module): The model to log graph for.
-            input_shape (tuple, optional): Shape of the input tensor. Defaults to (1, 3, 640, 640).
-        """
-        if not self.enabled or self.writer is None:
-            return
-            
-        try:
-            import torch
-            # Create a dummy input tensor with the specified shape
-            dummy_input = torch.zeros(input_shape, device=next(model.parameters()).device)
-            
-            # Add graph to TensorBoard with strict=False to handle dict outputs
-            self.writer.add_graph(model, dummy_input, use_strict_trace=False)
-            print(f"Model graph logged to TensorBoard with input shape {input_shape}")
-            
-            # For RTDETR model, also log individual components
-            if hasattr(model, 'backbone') and hasattr(model, 'encoder') and hasattr(model, 'decoder'):
-                print("Logging detailed model components...")
-                
-                # Create a separate writer for components to avoid conflicts
-                components_writer = self.writer
-                
-                # Log backbone structure
-                try:
-                    components_writer.add_graph(model.backbone, dummy_input)
-                    print("Backbone graph logged to TensorBoard")
-                except Exception as e:
-                    print(f"Could not log backbone structure: {e}")
-                
-                # For more complex components, we'll just log their structure information
-                self._log_module_structure(model.backbone, "backbone")
-                self._log_module_structure(model.encoder, "encoder")
-                self._log_module_structure(model.decoder, "decoder")
-        except Exception as e:
-            print(f"Failed to log model graph: {e}")
-            import traceback
-            traceback.print_exc()
-              
-    def _log_module_structure(self, module, name, max_depth=3):
-        """Log the structure of a module to TensorBoard as text.
-        
-        Args:
-            module (torch.nn.Module): The module to log structure for.
-            name (str): Name of the module.
-            max_depth (int, optional): Maximum depth to traverse. Defaults to 3.
-        """
-        if not self.enabled or self.writer is None:
-            return
-            
-        try:
-            # Generate a text representation of the module structure
-            structure_text = self._get_module_structure(module, max_depth=max_depth)
-            
-            # Add text to TensorBoard
-            self.writer.add_text(f"model_structure/{name}", structure_text)
-            print(f"Module structure for {name} logged to TensorBoard")
-        except Exception as e:
-            print(f"Failed to log module structure for {name}: {e}")
-    
-    def _get_module_structure(self, module, prefix='', depth=0, max_depth=3):
-        """Recursively get the structure of a module as a formatted string.
-        
-        Args:
-            module (torch.nn.Module): The module to get structure for.
-            prefix (str, optional): Prefix for the current line. Defaults to ''.
-            depth (int, optional): Current depth. Defaults to 0.
-            max_depth (int, optional): Maximum depth to traverse. Defaults to 3.
-            
-        Returns:
-            str: Formatted string representation of the module structure.
-        """
-        if depth > max_depth:
-            return prefix + "...(max depth reached)\n"
-            
-        result = ''
-        
-        # Add current module
-        module_name = module.__class__.__name__
-        num_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
-        result += f"{prefix}**{module_name}** (Params: {num_params:,})\n"
-        
-        # Add children modules
-        if depth < max_depth:
-            for name, child in module.named_children():
-                child_prefix = prefix + '  '
-                result += f"{child_prefix}*{name}*: "
-                result += self._get_module_structure(child, prefix + '    ', depth + 1, max_depth)
-                
-        return result
-    
-    def log_gradient_norm(self, model, step, norm_type=2):
-        """记录模型梯度的范数。
-        
-        Args:
-            model (torch.nn.Module): 要记录梯度的模型。
-            step (int): 全局步骤值。
-            norm_type (int, optional): 范数类型。默认为2（L2范数）。
-        """
-        if not self.enabled or self.writer is None:
-            return
-            
-        import torch
-        total_norm = 0.0
-        param_count = 0
-        
-        # 计算所有参数梯度的总范数
-        for p in model.parameters():
-            if p.grad is not None:
-                param_norm = p.grad.data.norm(norm_type)
-                total_norm += param_norm.item() ** norm_type
-                param_count += 1
-                
-                # 记录每个参数组的梯度范数（可选）
-                # self.writer.add_scalar(f"gradients/param_{param_count}_norm", param_norm.item(), step)
-        
-        if param_count > 0:
-            total_norm = total_norm ** (1. / norm_type)
-            self.writer.add_scalar("gradients/total_norm", total_norm, step)
-            print(f"Logged gradient norm: {total_norm:.4f} at step {step}")
-    
-    def log_evaluation_metrics(self, coco_eval, step):
-        """记录COCO评估指标。
-        
-        Args:
-            coco_eval: COCO评估器对象。
-            step (int): 全局步骤值。
+            coco_eval: COCO评估器对象
+            step (int): 全局步数
         """
         if not self.enabled or self.writer is None or coco_eval is None:
             return
+
+        # 1. 记录主要AP指标（最关键的目标检测指标）
+        ap_metrics = {
+            'mAP': coco_eval.stats[0],  # IoU=0.5:0.95的AP
+            'mAP_50': coco_eval.stats[1],  # IoU=0.5的AP
+            'mAP_75': coco_eval.stats[2],  # IoU=0.75的AP
+            'mAP_small': coco_eval.stats[3],  # 小物体的AP
+            'mAP_medium': coco_eval.stats[4],  # 中物体的AP
+            'mAP_large': coco_eval.stats[5],  # 大物体的AP
+        }
+        
+        # 2. 记录召回率指标
+        ar_metrics = {
+            'AR_max_1': coco_eval.stats[6],   # 每张图像最多1个检测结果的AR
+            'AR_max_10': coco_eval.stats[7],  # 每张图像最多10个检测结果的AR
+            'AR_max_100': coco_eval.stats[8], # 每张图像最多100个检测结果的AR
+            'AR_small': coco_eval.stats[9],   # 小物体的AR
+            'AR_medium': coco_eval.stats[10], # 中物体的AR
+            'AR_large': coco_eval.stats[11],  # 大物体的AR
+        }
+        
+        # 记录AP指标（主要指标）
+        for name, value in ap_metrics.items():
+            self.writer.add_scalar(f'detection/AP/{name}', value, step)
+            print(f"记录指标 detection/AP/{name}: {value:.4f}")
+        
+        # 记录AR指标
+        for name, value in ar_metrics.items():
+            self.writer.add_scalar(f'detection/AR/{name}', value, step)
+            print(f"记录指标 detection/AR/{name}: {value:.4f}")
+
+        # 3. 计算并记录F1分数（精确率和召回率的调和平均值）
+        # 使用IoU=0.5时的AP作为精确率，计算F1
+        precision_50 = ap_metrics['mAP_50']
+        
+        # 使用AR_max_100作为召回率
+        recall = ar_metrics['AR_max_100']
+        
+        # 计算F1分数
+        f1_score = 2 * (precision_50 * recall) / (precision_50 + recall + 1e-6)
+        
+        # 记录精确率、召回率和F1分数
+        self.writer.add_scalar('detection/precision', precision_50, step)
+        self.writer.add_scalar('detection/recall', recall, step)
+        self.writer.add_scalar('detection/f1_score', f1_score, step)
+        
+        print(f"记录关键指标 - Precision: {precision_50:.4f}, Recall: {recall:.4f}, F1: {f1_score:.4f}")
             
-        # 记录详细的COCO评估指标
-        if hasattr(coco_eval, 'stats'):
-            metrics = {
-                'mAP': coco_eval.stats[0],  # IoU=0.5:0.95的AP
-                'mAP_50': coco_eval.stats[1],  # IoU=0.5的AP
-                'mAP_75': coco_eval.stats[2],  # IoU=0.75的AP
-                'mAP_small': coco_eval.stats[3],  # 小物体的AP
-                'mAP_medium': coco_eval.stats[4],  # 中物体的AP
-                'mAP_large': coco_eval.stats[5],  # 大物体的AP
-            }
-            
-            # 记录每个类别的AP
-            if hasattr(coco_eval, 'eval') and 'precision' in coco_eval.eval:
+        # 4. 计算并记录每个类别的AP和F1分数
+        if hasattr(coco_eval, 'eval') and 'precision' in coco_eval.eval:
+            if hasattr(coco_eval.params, 'catIds'):
                 precisions = coco_eval.eval['precision']
-                # 计算每个类别的AP (IoU=0.5)
-                for category_id in range(precisions.shape[2]):
-                    ap = np.mean(precisions[0, :, category_id, 0, -1])
-                    self.writer.add_scalar(f"evaluation/category_AP_{category_id}", ap, step)
-            
-            # 记录精确率、召回率和F1分数
-            if hasattr(coco_eval, 'eval') and 'precision' in coco_eval.eval and 'recall' in coco_eval.eval:
-                precision = np.mean(coco_eval.eval['precision'])
-                recall = np.mean(coco_eval.eval['recall'])
-                f1_score = 2 * (precision * recall) / (precision + recall + 1e-6)
-                
-                metrics.update({
-                    'precision': precision,
-                    'recall': recall,
-                    'f1_score': f1_score
-                })
-            
-            # 记录IoU分布
-            if hasattr(coco_eval, 'ious'):
-                iou_values = np.array(list(coco_eval.ious.values()))
-                self.writer.add_histogram('evaluation/IoU_distribution', iou_values, step)
-            
-            # 记录假阳性和假阴性数量
-            if hasattr(coco_eval, 'eval') and 'scores' in coco_eval.eval and 'dtIds' in coco_eval.eval:
-                fp = np.sum(coco_eval.eval['scores'] == 0)
-                fn = len(coco_eval.eval['dtIds']) - np.sum(coco_eval.eval['scores'] > 0)
-                metrics.update({
-                    'false_positives': fp,
-                    'false_negatives': fn
-                })
-            
-            # 记录混淆矩阵
-            if hasattr(coco_eval, 'eval') and 'confusion' in coco_eval.eval:
-                confusion_matrix = coco_eval.eval['confusion']
-                figure = plt.figure(figsize=(10, 10))
-                plt.imshow(confusion_matrix, cmap='Blues')
-                plt.colorbar()
-                plt.title('Confusion Matrix')
-                plt.close()
-                
-                self.writer.add_figure('evaluation/confusion_matrix', figure, step)
-            
-            # 记录所有指标
-            for name, value in metrics.items():
-                self.writer.add_scalar(f"evaluation/{name}", value, step)
-            
-            print(f"Logged enhanced COCO evaluation metrics at step {step}")
+                # 对于每个类别计算AP (IoU=0.5)
+                for idx, cat_id in enumerate(coco_eval.params.catIds):
+                    if idx < precisions.shape[2]:
+                        # 计算该类别在IoU=0.5时的AP
+                        ap50 = np.mean(precisions[0, :, idx, 0, -1])
+                        
+                        # 获取类别名称
+                        category_name = f"category_{cat_id}"
+                        if hasattr(coco_eval, 'cocoGt') and hasattr(coco_eval.cocoGt, 'cats') and cat_id in coco_eval.cocoGt.cats:
+                            category_name = coco_eval.cocoGt.cats[cat_id]['name']
+                        
+                        # 记录每个类别的AP
+                        self.writer.add_scalar(f'detection/category_AP/{category_name}', ap50, step)
+                        print(f"记录类别 {category_name} AP: {ap50:.4f}")
+        
+        # 5. 可视化PR曲线（整体和每个类别）
+        if hasattr(coco_eval, 'eval') and 'precision' in coco_eval.eval:
+            self._log_pr_curve(coco_eval, step)
+        
+        # 确保立即写入数据
+        self.flush()
     
-    def log_optimizer_stats(self, optimizer, step):
-        """记录优化器统计信息，如学习率。
+    def _log_pr_curve(self, coco_eval, step):
+        """记录PR曲线
         
         Args:
-            optimizer (torch.optim.Optimizer): 优化器对象。
-            step (int): 全局步骤值。
+            coco_eval: COCO评估器对象
+            step (int): 全局步数
+        """
+        try:
+            # 创建整体PR曲线（所有类别的平均）
+            fig, ax = plt.subplots(figsize=(10, 8))
+        
+            # 获取PR曲线数据（对所有类别和IoU=0.5的情况）
+            precisions = coco_eval.eval['precision']
+            # 取IoU=0.5的精确率
+            precision_at_iou50 = precisions[0, :, :, 0, :]  # [recall, category, area]
+            
+            # 计算所有类别的平均精确率
+            mean_precision = np.mean(precision_at_iou50, axis=1)
+        
+            # 绘制PR曲线
+            recall_thresholds = np.linspace(0, 1, mean_precision.shape[0])
+            ax.plot(recall_thresholds, mean_precision, 'b-', label='mAP@IoU=0.5')
+            ax.set_xlabel('Recall')
+            ax.set_ylabel('Precision')
+            ax.set_title('Precision-Recall Curve')
+            ax.grid(True)
+            ax.legend()
+            
+            # 记录整体PR曲线
+            self.writer.add_figure('detection/pr_curve', fig, step)
+            plt.close(fig)
+                
+            # 为每个类别创建PR曲线（如果类别数量不多）
+            if hasattr(coco_eval.params, 'catIds') and len(coco_eval.params.catIds) <= 20:
+                fig, ax = plt.subplots(figsize=(12, 10))
+                
+                for idx, cat_id in enumerate(coco_eval.params.catIds):
+                    if idx < precision_at_iou50.shape[1]:
+                        # 获取该类别的PR曲线
+                        cat_precision = precision_at_iou50[:, idx, -1]
+                        
+                        # 获取类别名称
+                        category_name = f"category_{cat_id}"
+                        if hasattr(coco_eval, 'cocoGt') and hasattr(coco_eval.cocoGt, 'cats') and cat_id in coco_eval.cocoGt.cats:
+                            category_name = coco_eval.cocoGt.cats[cat_id]['name']
+                        
+                        # 绘制该类别的PR曲线
+                        ax.plot(recall_thresholds, cat_precision, label=category_name)
+                
+                ax.set_xlabel('Recall')
+                ax.set_ylabel('Precision')
+                ax.set_title('Per-Category Precision-Recall Curves (IoU=0.5)')
+                ax.grid(True)
+                ax.legend()
+                
+                # 记录每个类别的PR曲线
+                self.writer.add_figure('detection/category_pr_curves', fig, step)
+                plt.close(fig)
+        except Exception as e:
+            print(f"PR曲线绘制失败: {e}")
+              
+    def log_training_metrics(self, loss_dict, learning_rate, step):
+        """记录训练指标
+        
+        Args:
+            loss_dict (dict): 损失字典
+            learning_rate (float): 当前学习率
+            step (int): 全局步数
+        """
+        if not self.enabled or self.writer is None:
+            return
+            
+        # 记录总损失和各个损失组件
+        for loss_name, loss_value in loss_dict.items():
+            if isinstance(loss_value, (int, float)) or (hasattr(loss_value, 'item') and callable(getattr(loss_value, 'item'))):
+                loss_value = loss_value.item() if hasattr(loss_value, 'item') else loss_value
+                self.writer.add_scalar(f'train/loss/{loss_name}', loss_value, step)
+        
+        # 记录学习率
+        self.writer.add_scalar('train/learning_rate', learning_rate, step)
+    
+    def log_optimizer_stats(self, optimizer, step):
+        """记录优化器统计信息
+        
+        Args:
+            optimizer: PyTorch优化器
+            step (int): 全局步数
         """
         if not self.enabled or self.writer is None:
             return
             
         # 记录每个参数组的学习率
         for i, param_group in enumerate(optimizer.param_groups):
-            self.writer.add_scalar(f"optimizer/lr_group_{i}", param_group['lr'], step)
+            self.writer.add_scalar(f"train/lr_group_{i}", param_group['lr'], step)
+    
+    def log_model_info(self, model, step=0):
+        """记录模型信息
         
-        # 记录第一个参数组的学习率作为主要学习率
-        if optimizer.param_groups:
-            self.writer.add_scalar("optimizer/learning_rate", optimizer.param_groups[0]['lr'], step)
-            print(f"Logged learning rate: {optimizer.param_groups[0]['lr']:.6f} at step {step}")
+        Args:
+            model: PyTorch模型
+            step (int): 全局步数
+        """
+        if not self.enabled or self.writer is None:
+            return
+            
+        # 计算模型参数
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        
+        # 记录模型参数信息
+        self.writer.add_scalar("model/total_parameters", total_params, step)
+        self.writer.add_scalar("model/trainable_parameters", trainable_params, step)
+        
+        # 记录模型层级结构
+        self.log_model_hierarchy(model)
+    
+    def log_model_hierarchy(self, model):
+        """记录模型的层级结构和每层的参数数量
+        
+        Args:
+            model: PyTorch模型
+        """
+        if not self.enabled or self.writer is None:
+            return
+            
+        try:
+            print("记录模型层级结构...")
+            # 创建Markdown格式的表格
+            markdown = "# 模型层级结构\n\n"
+            markdown += "| 层名称 | 类型 | 参数量 | 可训练参数量 | 输出形状 |\n"
+            markdown += "| ------ | ---- | ------ | ------------ | -------- |\n"
+            
+            # 遍历模型的所有命名模块
+            for name, module in model.named_modules():
+                if name == "":  # 跳过根模块
+                    continue
+                    
+                # 计算该模块的参数量
+                params = sum(p.numel() for p in module.parameters())
+                trainable_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
+                
+                # 获取模块类型
+                module_type = module.__class__.__name__
+                
+                # 尝试获取输出形状（如果模块有output_shape属性）
+                output_shape = getattr(module, 'output_shape', '-')
+                
+                # 添加到表格
+                markdown += f"| {name} | {module_type} | {params:,} | {trainable_params:,} | {output_shape} |\n"
+            
+            # 将Markdown写入TensorBoard
+            self.writer.add_text('model/hierarchy', markdown, 0)
+            print("模型层级结构已记录到TensorBoard")
+            
+            # 创建参数分布图
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    self.writer.add_histogram(f'parameters/{name}', param, 0)
+            
+            # 确保立即写入
+            self.writer.flush()
+            
+        except Exception as e:
+            print(f"记录模型层级结构失败: {e}")
+    
+    def flush(self):
+        """刷新TensorBoard写入器"""
+        if self.enabled and self.writer is not None:
+            self.writer.flush()
     
     def close(self):
-        """Close the TensorBoard writer."""
+        """关闭TensorBoard写入器"""
         if self.enabled and self.writer is not None:
-            print("Flushing and closing TensorBoard writer")
-            if hasattr(self.writer, 'flush'):
-                self.writer.flush()
+            self.writer.flush()
             self.writer.close()
             self.writer = None
+            print("TensorBoard写入器已关闭")
+
+    def log_graph(self, model, input_shape=(1, 3, 640, 640)):
+        """将模型结构写入TensorBoard的GRAPHS标签页，确保显示完整的模型结构"""
+        if not self.enabled or self.writer is None:
+            return
+        try:
+            print("开始记录模型结构到TensorBoard...")
+            # 1. 记录整体模型结构
+            dummy_input = torch.zeros(input_shape, device=next(model.parameters()).device)
             
-    def flush(self):
-        """Flush the TensorBoard writer."""
-        if self.enabled and self.writer is not None:
-            print("Flushing TensorBoard writer")
+            # 尝试不同的trace方法
+            try:
+                # 方法1：使用use_strict_trace=False（适用于有dict输出的模型）
+                self.writer.add_graph(model, dummy_input, use_strict_trace=False)
+                print(f"模型结构已写入TensorBoard (use_strict_trace=False)，输入shape={input_shape}")
+            except Exception as e1:
+                print(f"使用use_strict_trace=False记录模型结构失败: {e1}")
+                try:
+                    # 方法2：使用verbose=True获取更多调试信息
+                    self.writer.add_graph(model, dummy_input, verbose=True)
+                    print(f"模型结构已写入TensorBoard (verbose=True)，输入shape={input_shape}")
+                except Exception as e2:
+                    print(f"使用verbose=True记录模型结构失败: {e2}")
+            
+            # 2. 记录主要子模块结构（如果存在）
+            if hasattr(model, 'backbone'):
+                try:
+                    self.writer.add_graph(model.backbone, dummy_input, use_strict_trace=False)
+                    print("Backbone结构已写入TensorBoard")
+                except Exception as e:
+                    print(f"记录Backbone结构失败: {e}")
+            
+            if hasattr(model, 'neck') and hasattr(model.backbone, 'forward_features'):
+                try:
+                    # 获取backbone的特征输出
+                    with torch.no_grad():
+                        features = model.backbone.forward_features(dummy_input)
+                    self.writer.add_graph(model.neck, features, use_strict_trace=False)
+                    print("Neck结构已写入TensorBoard")
+                except Exception as e:
+                    print(f"记录Neck结构失败: {e}")
+            
+            if hasattr(model, 'head'):
+                try:
+                    # 尝试直接记录head结构
+                    if hasattr(model.head, 'example_input'):
+                        example_input = model.head.example_input
+                        self.writer.add_graph(model.head, example_input, use_strict_trace=False)
+                        print("Head结构已写入TensorBoard")
+                except Exception as e:
+                    print(f"记录Head结构失败: {e}")
+            
+            # 3. 记录文本形式的模型结构
+            model_structure = str(model)
+            self.writer.add_text('model/structure', model_structure.replace('\n', '  \n'), 0)
+            print("模型文本结构已写入TensorBoard")
+            
+            # 4. 记录模型的参数数量分布
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    self.writer.add_histogram(f'model/parameters/{name}', param.data, 0)
+            print("模型参数分布已写入TensorBoard")
+            
+            # 确保立即写入
             self.writer.flush()
+            print("模型结构记录完成，已写入TensorBoard")
+            
+        except Exception as e:
+            print(f"写入模型结构到TensorBoard失败: {e}")
+            import traceback
+            traceback.print_exc()

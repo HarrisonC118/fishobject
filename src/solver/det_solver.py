@@ -49,20 +49,24 @@ class DetSolver(BaseSolver):
         model_size_MB = sum(p.numel() * p.element_size() for p in self.model.parameters()) / (1024 * 1024)
         print(f"Model size (MB): {model_size_MB:.2f}")
 
-        # Log model graph to TensorBoard if tensorboard_logger is available
+        # 记录模型结构到TensorBoard
         if hasattr(self, 'tensorboard_logger') and self.tensorboard_logger is not None and self.tensorboard_logger.enabled:
             try:
-                # Ensure dummy_input is defined for graph logging
-                if 'dummy_input_gflops' in locals():
-                    dummy_input_graph = dummy_input_gflops
-                else:
-                    dummy_input_graph = torch.zeros((1, 3, 640, 640), device=next(self.model.parameters()).device)
+                print("\n正在记录模型结构到TensorBoard，这可能需要一些时间...")
+                # 确保模型处于评估模式，避免训练时的随机性影响图结构
+                self.model.eval()
                 
-                print("Logging model graph to TensorBoard...")
+                # 记录模型结构
                 self.tensorboard_logger.log_graph(self.model, input_shape=(1, 3, 640, 640))
-                self.tensorboard_logger.writer.flush() # Flush after adding graph
+                
+                # 记录完后恢复到训练模式
+                self.model.train()
+                
+                print("模型结构记录完成！\n")
             except Exception as e:
-                print(f"Failed to log model graph to TensorBoard: {e}")
+                print(f"记录模型结构失败，但训练将继续: {e}")
+                import traceback
+                traceback.print_exc()
 
         base_ds = get_coco_api_from_dataset(self.val_dataloader.dataset)
         # best_stat = {'coco_eval_bbox': 0, 'coco_eval_masks': 0, 'epoch': -1, }
@@ -162,25 +166,43 @@ class DetSolver(BaseSolver):
             
             # Log metrics to TensorBoard
             if hasattr(self, 'tensorboard_logger') and self.tensorboard_logger is not None and self.tensorboard_logger.enabled:
-                # 记录训练指标
-                self.tensorboard_logger.log_metrics(train_stats, epoch, prefix='train/')
+                print(f"Epoch {epoch}: 开始记录指标到TensorBoard...")
+                
+                # 记录训练损失和学习率
+                if 'loss' in train_stats:
+                    loss_dict = {'total_loss': train_stats['loss']}
+                    # 提取其他损失组件
+                    for k, v in train_stats.items():
+                        if k.startswith('loss_') and isinstance(v, (float, int)):
+                            loss_dict[k] = v
+                    
+                    # 获取当前学习率
+                    current_lr = self.optimizer.param_groups[0]['lr'] if self.optimizer.param_groups else 0
+                    self.tensorboard_logger.log_training_metrics(loss_dict, current_lr, epoch)
+                
+                # 记录其他训练指标
+                self.tensorboard_logger.log_metrics({k: v for k, v in train_stats.items() if not k.startswith('loss_')}, epoch, prefix='train/')
                 
                 # 记录评估指标
                 self.tensorboard_logger.log_metrics(test_stats, epoch, prefix='val/')
                 
-                # 记录学习率
+                # 记录优化器信息
                 self.tensorboard_logger.log_optimizer_stats(self.optimizer, epoch)
                 
-                # 记录COCO评估指标
-                if coco_evaluator is not None and "bbox" in coco_evaluator.coco_eval:
-                    self.tensorboard_logger.log_evaluation_metrics(coco_evaluator.coco_eval["bbox"], epoch)
-                
-                # 记录FPS
+                # 记录性能指标
                 if 'fps' in train_stats:
                     self.tensorboard_logger.log_metrics({'FPS': train_stats['fps']}, epoch, prefix='performance/')
                 
-                self.tensorboard_logger.writer.flush()
-                print(f"Epoch {epoch}: 训练和评估指标已写入 TensorBoard。")
+                # 确保数据被写入磁盘
+                self.tensorboard_logger.flush()
+                print(f"Epoch {epoch}: 训练和评估指标已写入TensorBoard")
+                
+                # 打印当前F1值等关键指标
+                if coco_evaluator is not None and "bbox" in coco_evaluator.coco_eval:
+                    mAP50 = coco_evaluator.coco_eval["bbox"].stats[1]  # IoU=0.5的AP
+                    AR = coco_evaluator.coco_eval["bbox"].stats[8]  # AR_max_100
+                    F1 = 2 * (mAP50 * AR) / (mAP50 + AR + 1e-6)
+                    print(f"Epoch {epoch} 关键指标: mAP@0.5={mAP50:.4f}, AR={AR:.4f}, F1={F1:.4f}")
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))

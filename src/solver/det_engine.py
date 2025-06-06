@@ -223,11 +223,22 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessors,
     tensorboard_logger = kwargs.get('tensorboard_logger', None)
     if tensorboard_logger is not None and tensorboard_logger.enabled:
         if coco_evaluator is not None:
+            print(f"Epoch {epoch}: 开始记录评估指标到TensorBoard...")
             for iou_type in iou_types:
                 if iou_type in coco_evaluator.coco_eval:
-                    tensorboard_logger.log_evaluation_metrics(coco_evaluator.coco_eval[iou_type], epoch)
-            tensorboard_logger.writer.flush()
-            print(f"Epoch {epoch}: COCO评估指标已写入TensorBoard。")
+                    # 使用新的log_detection_metrics函数记录详细的检测指标
+                    tensorboard_logger.log_detection_metrics(coco_evaluator.coco_eval[iou_type], epoch)
+            
+            # 确保数据立即写入磁盘
+            tensorboard_logger.flush()
+            print(f"Epoch {epoch}: 目标检测评估指标已写入TensorBoard")
+            
+            # 打印关键指标
+            if 'bbox' in coco_evaluator.coco_eval:
+                stats = coco_evaluator.coco_eval['bbox'].stats
+                print(f"评估结果: mAP={stats[0]:.4f}, mAP@0.5={stats[1]:.4f}, mAP@0.75={stats[2]:.4f}")
+                print(f"         mAP_small={stats[3]:.4f}, mAP_medium={stats[4]:.4f}, mAP_large={stats[5]:.4f}")
+                print(f"         AR@100={stats[8]:.4f}")
     
     stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     if coco_evaluator is not None:

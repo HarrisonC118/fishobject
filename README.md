@@ -1,4 +1,4 @@
-(smdetr) harrison@harrison-OMEN-by-HP-Laptop-15-dc1xxx:~/rtdetr_pytorch$ python ./tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml --log-dir ssm_test
+(smdetr) harrison@harrison-OMEN-by-HP-Laptop-15-dc1xxx:~/rtdetr_pytorch$ python ./tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml --log-dir logs/ssm_test
 
 ## TODO
 <details>
