@@ -6,8 +6,8 @@ postprocessor: RTDETRPostProcessor
 
 
 RTDETR: 
-  backbone_type: PResNet # Options: PResNet, HierarchicalConvSSM
-  backbone: PResNet # This will be dynamically set by the config loader
+  # backbone_type: PResNet # Options: PResNet, HierarchicalConvSSM
+  backbone: PResNet
   encoder: HybridEncoder
   decoder: RTDETRTransformer
   multi_scale: [480, 512, 544, 576, 608, 640, 640, 640, 672, 704, 736, 768, 800]

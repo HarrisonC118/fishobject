@@ -1,1 +1,12 @@
-   /output/
+# 忽略所有pyc文件
+*.pyc
+
+# 忽略logs和output文件夹及其所有内容
+logs/
+output/
+
+# 忽略所有.DS_Store文件
+.DS_Store
+
+# 忽略所有.idea文件夹
+.idea/

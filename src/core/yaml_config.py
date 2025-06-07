@@ -40,34 +40,6 @@ class YAMLConfig(BaseConfig):
     @property
     def model(self, ) -> torch.nn.Module:
         if self._model is None and 'model' in self.yaml_cfg:
-            # 处理Mamba模块
-            if 'RTDETR' in self.yaml_cfg and 'backbone_type' in self.yaml_cfg['RTDETR']:
-                # 把backbone的值变成backbone_type，实际上没用
-                backbone_type = self.yaml_cfg['RTDETR']['backbone_type']
-                self.yaml_cfg['RTDETR']['backbone'] = backbone_type
-                
-                # 自动计算hybridEncoder的in_channels的维数
-                if backbone_type == 'HierarchicalConvSSM' and 'HierarchicalConvSSM' in self.yaml_cfg and 'HybridEncoder' in self.yaml_cfg:
-                    hconv_ssm_cfg = self.yaml_cfg['HierarchicalConvSSM']
-                    embed_dim = hconv_ssm_cfg.get('embed_dim', 96)
-                    out_indices = hconv_ssm_cfg.get('out_indices', [1, 2, 3]) # P3, P4, P5
-                    
-                    # Calculate expected output channels from HierarchicalConvSSM
-                    # P2: embed_dim
-                    # P3: embed_dim * 2
-                    # P4: embed_dim * 4
-                    # P5: embed_dim * 8
-                    potential_channels = [
-                        embed_dim,      # P2 (index 0)
-                        embed_dim * 2,  # P3 (index 1)
-                        embed_dim * 4,  # P4 (index 2)
-                        embed_dim * 8   # P5 (index 3)
-                    ]
-                    
-                    hybrid_encoder_in_channels = [potential_channels[i] for i in out_indices]
-                    self.yaml_cfg['HybridEncoder']['in_channels'] = hybrid_encoder_in_channels
-                    print(f"[YAMLConfig] Switched to HierarchicalConvSSM. HybridEncoder in_channels set to: {hybrid_encoder_in_channels}")
-
             merge_config(self.yaml_cfg)
             # ！！！最重要的一步，创建模型
             self._model = create(self.yaml_cfg['model'])
