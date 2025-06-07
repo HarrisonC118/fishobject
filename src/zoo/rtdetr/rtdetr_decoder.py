@@ -83,6 +83,38 @@ class MSDeformableAttention(nn.Module):
         init.xavier_uniform_(self.output_proj.weight)
         init.constant_(self.output_proj.bias, 0)
 
+    @staticmethod
+    @torch.jit.script
+    def _get_sampling_locations(reference_points: torch.Tensor, 
+                               sampling_offsets: torch.Tensor, 
+                               value_spatial_shapes_tensor: torch.Tensor, 
+                               num_levels: int, 
+                               num_points: int) -> torch.Tensor:
+        """
+        Trace-friendly function to calculate sampling locations based on reference points.
+        This avoids Python control flow for tensor shape checking.
+        """
+        bs, Len_q = reference_points.shape[:2]
+        ref_dim = reference_points.size(-1)
+        
+        offset_normalizer = value_spatial_shapes_tensor.flip(dims=[1]).reshape(
+            1, 1, 1, num_levels, 1, 2)
+        
+        if ref_dim == 2:
+            # Point form
+            reference_points_reshape = reference_points.reshape(bs, Len_q, 1, num_levels, 1, 2)
+            sampling_locations = reference_points_reshape + sampling_offsets / offset_normalizer
+            return sampling_locations
+        elif ref_dim == 4:
+            # Box form
+            sampling_locations = (
+                reference_points[:, :, None, :, None, :2] + 
+                sampling_offsets / num_points * reference_points[:, :, None, :, None, 2:] * 0.5
+            )
+            return sampling_locations
+        else:
+            # This will be caught during tracing and turned into a runtime error
+            raise ValueError(f"Last dim of reference_points must be 2 or 4, but got {ref_dim}")
 
     def forward(self,
                 query,
@@ -119,28 +151,22 @@ class MSDeformableAttention(nn.Module):
         attention_weights = F.softmax(attention_weights, dim=-1).reshape(
             bs, Len_q, self.num_heads, self.num_levels, self.num_points)
 
-        # Use tensor operations instead of direct shape comparison to avoid TracerWarning
-        is_point_form = reference_points.size(-1) == 2
-        is_box_form = reference_points.size(-1) == 4
-        
-        # Point form branch (reference_points.size(-1) == 2)
-        offset_normalizer_point = torch.tensor(value_spatial_shapes, device=reference_points.device).flip([1]).reshape(
-            1, 1, 1, self.num_levels, 1, 2)
-        if is_point_form:
-            reference_points_reshape = reference_points.reshape(bs, Len_q, 1, self.num_levels, 1, 2)
-            sampling_locations = reference_points_reshape + sampling_offsets / offset_normalizer_point
+        # Convert value_spatial_shapes to tensor if it's not already
+        if not torch.is_tensor(value_spatial_shapes):
+            value_spatial_shapes_tensor = torch.tensor(value_spatial_shapes, 
+                                                      dtype=torch.long, 
+                                                      device=reference_points.device)
         else:
-            # Box form branch (reference_points.size(-1) == 4)
-            sampling_locations = (
-                reference_points[:, :, None, :, None, :2] + sampling_offsets /
-                self.num_points * reference_points[:, :, None, :, None, 2:] * 0.5)
+            value_spatial_shapes_tensor = value_spatial_shapes
         
-        # Validate input dimensions
-        if not (is_point_form or is_box_form):
-            raise ValueError(
-                "Last dim of reference_points must be 2 or 4, but get {} instead.".
-                format(reference_points.size(-1)))
-
+        # Use trace-friendly function to get sampling locations
+        sampling_locations = self._get_sampling_locations(
+            reference_points, 
+            sampling_offsets, 
+            value_spatial_shapes_tensor, 
+            self.num_levels, 
+            self.num_points
+        )
 
         output = self.ms_deformable_attn_core(value, value_spatial_shapes, sampling_locations, attention_weights)
 
