@@ -1,14 +1,14 @@
 """by lyuwenyu
 """
 
-import math 
-import copy 
+import math
+import copy
 from collections import OrderedDict
 
-import torch 
-import torch.nn as nn 
-import torch.nn.functional as F 
-import torch.nn.init as init 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.nn.init as init
 
 from .denoising import get_contrastive_denoising_training_group
 from .utils import deformable_attention_core_func, get_activation, inverse_sigmoid
@@ -22,20 +22,19 @@ from src.core import register
 __all__ = ['RTDETRTransformer']
 
 
-
 class MLP(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers, act='relu'):
         super().__init__()
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
-        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+        self.layers = nn.ModuleList(nn.Linear(n, k)
+                                    for n, k in zip([input_dim] + h, h + [output_dim]))
         self.act = nn.Identity() if act is None else get_activation(act)
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):
             x = self.act(layer(x)) if i < self.num_layers - 1 else layer(x)
         return x
-
 
 
 class MSDeformableAttention(nn.Module):
@@ -51,7 +50,8 @@ class MSDeformableAttention(nn.Module):
         self.total_points = num_heads * num_levels * num_points
 
         self.head_dim = embed_dim // num_heads
-        assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
+        assert self.head_dim * \
+            num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
 
         self.sampling_offsets = nn.Linear(embed_dim, self.total_points * 2,)
         self.attention_weights = nn.Linear(embed_dim, self.total_points)
@@ -62,15 +62,17 @@ class MSDeformableAttention(nn.Module):
 
         self._reset_parameters()
 
-
     def _reset_parameters(self):
         # sampling_offsets
         init.constant_(self.sampling_offsets.weight, 0)
-        thetas = torch.arange(self.num_heads, dtype=torch.float32) * (2.0 * math.pi / self.num_heads)
+        thetas = torch.arange(
+            self.num_heads, dtype=torch.float32) * (2.0 * math.pi / self.num_heads)
         grid_init = torch.stack([thetas.cos(), thetas.sin()], -1)
         grid_init = grid_init / grid_init.abs().max(-1, keepdim=True).values
-        grid_init = grid_init.reshape(self.num_heads, 1, 1, 2).tile([1, self.num_levels, self.num_points, 1])
-        scaling = torch.arange(1, self.num_points + 1, dtype=torch.float32).reshape(1, 1, -1, 1)
+        grid_init = grid_init.reshape(self.num_heads, 1, 1, 2).tile(
+            [1, self.num_levels, self.num_points, 1])
+        scaling = torch.arange(1, self.num_points + 1,
+                               dtype=torch.float32).reshape(1, 1, -1, 1)
         grid_init *= scaling
         self.sampling_offsets.bias.data[...] = grid_init.flatten()
 
@@ -86,36 +88,40 @@ class MSDeformableAttention(nn.Module):
 
     @staticmethod
     @torch.jit.script
-    def _get_sampling_locations(reference_points: torch.Tensor, 
-                               sampling_offsets: torch.Tensor, 
-                               value_spatial_shapes_tensor: torch.Tensor, 
-                               num_levels: int, 
-                               num_points: int) -> torch.Tensor:
+    def _get_sampling_locations(reference_points: torch.Tensor,
+                                sampling_offsets: torch.Tensor,
+                                value_spatial_shapes_tensor: torch.Tensor,
+                                num_levels: int,
+                                num_points: int) -> torch.Tensor:
         """
         Trace-friendly function to calculate sampling locations based on reference points.
         This avoids Python control flow for tensor shape checking.
         """
         bs, Len_q = reference_points.shape[:2]
         ref_dim = reference_points.size(-1)
-        
+
         offset_normalizer = value_spatial_shapes_tensor.flip(dims=[1]).reshape(
             1, 1, 1, num_levels, 1, 2)
-        
+
         if ref_dim == 2:
             # Point form
-            reference_points_reshape = reference_points.reshape(bs, Len_q, 1, num_levels, 1, 2)
-            sampling_locations = reference_points_reshape + sampling_offsets / offset_normalizer
+            reference_points_reshape = reference_points.reshape(
+                bs, Len_q, 1, num_levels, 1, 2)
+            sampling_locations = reference_points_reshape + \
+                sampling_offsets / offset_normalizer
             return sampling_locations
         elif ref_dim == 4:
             # Box form
             sampling_locations = (
-                reference_points[:, :, None, :, None, :2] + 
-                sampling_offsets / num_points * reference_points[:, :, None, :, None, 2:] * 0.5
+                reference_points[:, :, None, :, None, :2] +
+                sampling_offsets / num_points *
+                reference_points[:, :, None, :, None, 2:] * 0.5
             )
             return sampling_locations
         else:
             # This will be caught during tracing and turned into a runtime error
-            raise ValueError(f"Last dim of reference_points must be 2 or 4, but got {ref_dim}")
+            raise ValueError(
+                f"Last dim of reference_points must be 2 or 4, but got {ref_dim}")
 
     def forward(self,
                 query,
@@ -154,22 +160,23 @@ class MSDeformableAttention(nn.Module):
 
         # Convert value_spatial_shapes to tensor if it's not already
         if not torch.is_tensor(value_spatial_shapes):
-            value_spatial_shapes_tensor = torch.tensor(value_spatial_shapes, 
-                                                      dtype=torch.long, 
-                                                      device=reference_points.device)
+            value_spatial_shapes_tensor = torch.tensor(value_spatial_shapes,
+                                                       dtype=torch.long,
+                                                       device=reference_points.device)
         else:
             value_spatial_shapes_tensor = value_spatial_shapes
-        
+
         # Use trace-friendly function to get sampling locations
         sampling_locations = self._get_sampling_locations(
-            reference_points, 
-            sampling_offsets, 
-            value_spatial_shapes_tensor, 
-            self.num_levels, 
+            reference_points,
+            sampling_offsets,
+            value_spatial_shapes_tensor,
+            self.num_levels,
             self.num_points
         )
 
-        output = self.ms_deformable_attn_core(value, value_spatial_shapes, sampling_locations, attention_weights)
+        output = self.ms_deformable_attn_core(
+            value, value_spatial_shapes, sampling_locations, attention_weights)
 
         output = self.output_proj(output)
 
@@ -192,12 +199,14 @@ class TransformerDecoderLayer(nn.Module):
         super(TransformerDecoderLayer, self).__init__()
 
         # self attention
-        self.self_attn = nn.MultiheadAttention(d_model, n_head, dropout=dropout, batch_first=True)
+        self.self_attn = nn.MultiheadAttention(
+            d_model, n_head, dropout=dropout, batch_first=True)
         self.dropout1 = nn.Dropout(dropout)
         self.norm1 = nn.LayerNorm(d_model)
 
         # cross attention
-        self.cross_attn = MSDeformableAttention(d_model, n_head, n_levels, n_points)
+        self.cross_attn = MSDeformableAttention(
+            d_model, n_head, n_levels, n_points)
         self.dropout2 = nn.Dropout(dropout)
         self.norm2 = nn.LayerNorm(d_model)
 
@@ -286,22 +295,16 @@ class TransformerDecoderLayer(nn.Module):
         # self attention
         q = k = self.with_pos_embed(tgt, query_pos_embed)
 
-        # if attn_mask is not None:
-        #     attn_mask = torch.where(
-        #         attn_mask.to(torch.bool),
-        #         torch.zeros_like(attn_mask),
-        #         torch.full_like(attn_mask, float('-inf'), dtype=tgt.dtype))
-
         tgt2, _ = self.self_attn(q, k, value=tgt, attn_mask=attn_mask)
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
 
         # cross attention
-        tgt2 = self.cross_attn(\
-            self.with_pos_embed(tgt, query_pos_embed), 
-            reference_points, 
-            memory, 
-            memory_spatial_shapes, 
+        tgt2 = self.cross_attn(
+            self.with_pos_embed(tgt, query_pos_embed),
+            reference_points,
+            memory,
+            memory_spatial_shapes,
             memory_mask)
 
         # If ASSM is enabled, selectively apply it to small target low confidence tokens
@@ -332,7 +335,8 @@ class TransformerDecoderLayer(nn.Module):
 class TransformerDecoder(nn.Module):
     def __init__(self, hidden_dim, decoder_layer, num_layers, eval_idx=-1):
         super(TransformerDecoder, self).__init__()
-        self.layers = nn.ModuleList([copy.deepcopy(decoder_layer) for _ in range(num_layers)])
+        self.layers = nn.ModuleList(
+            [copy.deepcopy(decoder_layer) for _ in range(num_layers)])
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
@@ -364,14 +368,16 @@ class TransformerDecoder(nn.Module):
                            memory_spatial_shapes, memory_level_start_index,
                            attn_mask, memory_mask, query_pos_embed, current_score_logits)
 
-            inter_ref_bbox = F.sigmoid(bbox_head[i](output) + inverse_sigmoid(ref_points_detach))
+            inter_ref_bbox = F.sigmoid(bbox_head[i](
+                output) + inverse_sigmoid(ref_points_detach))
 
             if self.training:
                 dec_out_logits.append(score_head[i](output))
                 if i == 0:
                     dec_out_bboxes.append(inter_ref_bbox)
                 else:
-                    dec_out_bboxes.append(F.sigmoid(bbox_head[i](output) + inverse_sigmoid(ref_points)))
+                    dec_out_bboxes.append(F.sigmoid(bbox_head[i](
+                        output) + inverse_sigmoid(ref_points)))
 
             elif i == self.eval_idx:
                 dec_out_logits.append(score_head[i](output))
@@ -388,6 +394,7 @@ class TransformerDecoder(nn.Module):
 @register
 class RTDETRTransformer(nn.Module):
     __share__ = ['num_classes']
+
     def __init__(self,
                  num_classes=80,
                  hidden_dim=256,
@@ -408,7 +415,7 @@ class RTDETRTransformer(nn.Module):
                  learnt_init_query=False,
                  eval_spatial_size=None,
                  eval_idx=-1,
-                 eps=1e-2, 
+                 eps=1e-2,
                  aux_loss=True,
                  use_assm=False,
                  assm_d_state=32,
@@ -439,21 +446,24 @@ class RTDETRTransformer(nn.Module):
 
         # Transformer module
         decoder_layer = TransformerDecoderLayer(
-            hidden_dim, nhead, dim_feedforward, dropout, activation, num_levels, num_decoder_points,
+            hidden_dim, nhead, dim_feedforward, dropout, activation,
+            num_levels, num_decoder_points,
             use_assm=use_assm,
             assm_d_state=assm_d_state,
             assm_num_tokens=assm_num_tokens,
             assm_inner_rank=assm_inner_rank
         )
-        self.decoder = TransformerDecoder(hidden_dim, decoder_layer, num_decoder_layers, eval_idx)
+        self.decoder = TransformerDecoder(
+            hidden_dim, decoder_layer, num_decoder_layers, eval_idx)
 
         self.num_denoising = num_denoising
         self.label_noise_ratio = label_noise_ratio
         self.box_noise_scale = box_noise_scale
         # denoising part
-        if num_denoising > 0: 
+        if num_denoising > 0:
             # self.denoising_class_embed = nn.Embedding(num_classes, hidden_dim, padding_idx=num_classes-1) # TODO for load paddle weights
-            self.denoising_class_embed = nn.Embedding(num_classes+1, hidden_dim, padding_idx=num_classes)
+            self.denoising_class_embed = nn.Embedding(
+                num_classes+1, hidden_dim, padding_idx=num_classes)
 
         # decoder embedding
         self.learnt_init_query = learnt_init_query
@@ -496,7 +506,7 @@ class RTDETRTransformer(nn.Module):
             init.constant_(cls_.bias, bias)
             init.constant_(reg_.layers[-1].weight, 0)
             init.constant_(reg_.layers[-1].bias, 0)
-        
+
         # linear_init_(self.enc_output[0])
         init.xavier_uniform_(self.enc_output[0].weight)
         if self.learnt_init_query:
@@ -504,13 +514,12 @@ class RTDETRTransformer(nn.Module):
         init.xavier_uniform_(self.query_pos_head.layers[0].weight)
         init.xavier_uniform_(self.query_pos_head.layers[1].weight)
 
-
     def _build_input_proj_layer(self, feat_channels):
         self.input_proj = nn.ModuleList()
         for in_channels in feat_channels:
             self.input_proj.append(
                 nn.Sequential(OrderedDict([
-                    ('conv', nn.Conv2d(in_channels, self.hidden_dim, 1, bias=False)), 
+                    ('conv', nn.Conv2d(in_channels, self.hidden_dim, 1, bias=False)),
                     ('norm', nn.BatchNorm2d(self.hidden_dim,))])
                 )
             )
@@ -520,7 +529,8 @@ class RTDETRTransformer(nn.Module):
         for _ in range(self.num_levels - len(feat_channels)):
             self.input_proj.append(
                 nn.Sequential(OrderedDict([
-                    ('conv', nn.Conv2d(in_channels, self.hidden_dim, 3, 2, padding=1, bias=False)),
+                    ('conv', nn.Conv2d(in_channels,
+                     self.hidden_dim, 3, 2, padding=1, bias=False)),
                     ('norm', nn.BatchNorm2d(self.hidden_dim))])
                 )
             )
@@ -562,28 +572,29 @@ class RTDETRTransformer(nn.Module):
                           device='cpu'):
         if spatial_shapes is None:
             spatial_shapes = [[int(self.eval_spatial_size[0] / s), int(self.eval_spatial_size[1] / s)]
-                for s in self.feat_strides
-            ]
+                              for s in self.feat_strides
+                              ]
         anchors = []
         for lvl, (h, w) in enumerate(spatial_shapes):
-            grid_y, grid_x = torch.meshgrid(\
-                torch.arange(end=h, dtype=dtype), \
+            grid_y, grid_x = torch.meshgrid(
+                torch.arange(end=h, dtype=dtype),
                 torch.arange(end=w, dtype=dtype), indexing='ij')
             grid_xy = torch.stack([grid_x, grid_y], -1)
             valid_WH = torch.tensor([w, h]).to(dtype)
             grid_xy = (grid_xy.unsqueeze(0) + 0.5) / valid_WH
             wh = torch.ones_like(grid_xy) * grid_size * (2.0 ** lvl)
-            anchors.append(torch.concat([grid_xy, wh], -1).reshape(-1, h * w, 4))
+            anchors.append(torch.concat(
+                [grid_xy, wh], -1).reshape(-1, h * w, 4))
 
         anchors = torch.concat(anchors, 1).to(device)
-        valid_mask = ((anchors > self.eps) * (anchors < 1 - self.eps)).all(-1, keepdim=True)
+        valid_mask = ((anchors > self.eps) * (anchors <
+                      1 - self.eps)).all(-1, keepdim=True)
         anchors = torch.log(anchors / (1 - anchors))
         # anchors = torch.where(valid_mask, anchors, float('inf'))
         # anchors[valid_mask] = torch.inf # valid_mask [1, 8400, 1]
         anchors = torch.where(valid_mask, anchors, torch.inf)
 
         return anchors, valid_mask
-
 
     def _get_decoder_input(self,
                            memory,
@@ -593,37 +604,41 @@ class RTDETRTransformer(nn.Module):
         bs, _, _ = memory.shape
         # prepare input for decoder
         if self.training or self.eval_spatial_size is None:
-            anchors, valid_mask = self._generate_anchors(spatial_shapes, device=memory.device)
+            anchors, valid_mask = self._generate_anchors(
+                spatial_shapes, device=memory.device)
         else:
-            anchors, valid_mask = self.anchors.to(memory.device), self.valid_mask.to(memory.device)
+            anchors, valid_mask = self.anchors.to(
+                memory.device), self.valid_mask.to(memory.device)
 
         # memory = torch.where(valid_mask, memory, 0)
-        memory = valid_mask.to(memory.dtype) * memory  # TODO fix type error for onnx export 
+        # TODO fix type error for onnx export
+        memory = valid_mask.to(memory.dtype) * memory
 
         output_memory = self.enc_output(memory)
 
         enc_outputs_class = self.enc_score_head(output_memory)
         enc_outputs_coord_unact = self.enc_bbox_head(output_memory) + anchors
 
-        _, topk_ind = torch.topk(enc_outputs_class.max(-1).values, self.num_queries, dim=1)
-        
-        reference_points_unact = enc_outputs_coord_unact.gather(dim=1, \
-            index=topk_ind.unsqueeze(-1).repeat(1, 1, enc_outputs_coord_unact.shape[-1]))
+        _, topk_ind = torch.topk(
+            enc_outputs_class.max(-1).values, self.num_queries, dim=1)
+
+        reference_points_unact = enc_outputs_coord_unact.gather(dim=1,
+                                                                index=topk_ind.unsqueeze(-1).repeat(1, 1, enc_outputs_coord_unact.shape[-1]))
 
         enc_topk_bboxes = F.sigmoid(reference_points_unact)
         if denoising_bbox_unact is not None:
             reference_points_unact = torch.concat(
                 [denoising_bbox_unact, reference_points_unact], 1)
-        
-        enc_topk_logits = enc_outputs_class.gather(dim=1, \
-            index=topk_ind.unsqueeze(-1).repeat(1, 1, enc_outputs_class.shape[-1]))
+
+        enc_topk_logits = enc_outputs_class.gather(dim=1,
+                                                   index=topk_ind.unsqueeze(-1).repeat(1, 1, enc_outputs_class.shape[-1]))
 
         # extract region features
         if self.learnt_init_query:
             target = self.tgt_embed.weight.unsqueeze(0).tile([bs, 1, 1])
         else:
-            target = output_memory.gather(dim=1, \
-                index=topk_ind.unsqueeze(-1).repeat(1, 1, output_memory.shape[-1]))
+            target = output_memory.gather(dim=1,
+                                          index=topk_ind.unsqueeze(-1).repeat(1, 1, output_memory.shape[-1]))
             target = target.detach()
 
         if denoising_class is not None:
@@ -631,27 +646,27 @@ class RTDETRTransformer(nn.Module):
 
         return target, reference_points_unact.detach(), enc_topk_bboxes, enc_topk_logits
 
-
     def forward(self, feats, targets=None):
 
         # input projection and embedding
         (memory, spatial_shapes, level_start_index) = self._get_encoder_input(feats)
-        
+
         # prepare denoising training
         if self.training and self.num_denoising > 0:
             denoising_class, denoising_bbox_unact, attn_mask, dn_meta = \
-                get_contrastive_denoising_training_group(targets, \
-                    self.num_classes, 
-                    self.num_queries, 
-                    self.denoising_class_embed, 
-                    num_denoising=self.num_denoising, 
-                    label_noise_ratio=self.label_noise_ratio, 
-                    box_noise_scale=self.box_noise_scale, )
+                get_contrastive_denoising_training_group(targets,
+                                                         self.num_classes,
+                                                         self.num_queries,
+                                                         self.denoising_class_embed,
+                                                         num_denoising=self.num_denoising,
+                                                         label_noise_ratio=self.label_noise_ratio,
+                                                         box_noise_scale=self.box_noise_scale, )
         else:
             denoising_class, denoising_bbox_unact, attn_mask, dn_meta = None, None, None, None
 
         target, init_ref_points_unact, enc_topk_bboxes, enc_topk_logits = \
-            self._get_decoder_input(memory, spatial_shapes, denoising_class, denoising_bbox_unact)
+            self._get_decoder_input(
+                memory, spatial_shapes, denoising_class, denoising_bbox_unact)
 
         # decoder
         out_bboxes, out_logits = self.decoder(
@@ -666,21 +681,25 @@ class RTDETRTransformer(nn.Module):
             attn_mask=attn_mask)
 
         if self.training and dn_meta is not None:
-            dn_out_bboxes, out_bboxes = torch.split(out_bboxes, dn_meta['dn_num_split'], dim=2)
-            dn_out_logits, out_logits = torch.split(out_logits, dn_meta['dn_num_split'], dim=2)
+            dn_out_bboxes, out_bboxes = torch.split(
+                out_bboxes, dn_meta['dn_num_split'], dim=2)
+            dn_out_logits, out_logits = torch.split(
+                out_logits, dn_meta['dn_num_split'], dim=2)
 
         out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1]}
 
         if self.training and self.aux_loss:
-            out['aux_outputs'] = self._set_aux_loss(out_logits[:-1], out_bboxes[:-1])
-            out['aux_outputs'].extend(self._set_aux_loss([enc_topk_logits], [enc_topk_bboxes]))
-            
+            out['aux_outputs'] = self._set_aux_loss(
+                out_logits[:-1], out_bboxes[:-1])
+            out['aux_outputs'].extend(self._set_aux_loss(
+                [enc_topk_logits], [enc_topk_bboxes]))
+
             if self.training and dn_meta is not None:
-                out['dn_aux_outputs'] = self._set_aux_loss(dn_out_logits, dn_out_bboxes)
+                out['dn_aux_outputs'] = self._set_aux_loss(
+                    dn_out_logits, dn_out_bboxes)
                 out['dn_meta'] = dn_meta
 
         return out
-
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):

@@ -1,8 +1,8 @@
 nohup python ./tools/train.py \
     --config configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
-    --log-dir mainlog/baseline \
-    --model-name "DETR-R50" \
-    > main_terminal_log/baseline.log 2>&1 &
+    --log-dir mainlog/DETR-R50-ASSM \
+    --model-name "DETR-R50-ASSM" \
+    > main_terminal_log/DETR-R50-ASSM.log 2>&1 &
 ## TODO
 <details>
 <summary> see details </summary>
