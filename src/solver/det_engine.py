@@ -30,7 +30,15 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value:.6f}'))
     # metric_logger.add_meter('class_error', SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = kwargs.get('print_freq', 10)
+    
+    # 从配置中获取日志打印频率，优先使用cfg.log_step
+    cfg = kwargs.get('cfg', None)
+    if cfg and hasattr(cfg, 'log_step'):
+        print_freq = cfg.log_step
+    else:
+        print_freq = kwargs.get('print_freq', 10)
+    
+    print(f"日志记录频率设置为: 每{print_freq}次迭代")
     
     ema = kwargs.get('ema', None)
     scaler = kwargs.get('scaler', None)
@@ -99,6 +107,10 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 @torch.no_grad()
 def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessors, data_loader, base_ds, device, output_dir, **kwargs):
+    # 添加检查点路径参数，用于跟踪最佳模型
+    checkpoint_path = kwargs.get('checkpoint_path', None)
+    epoch = kwargs.get('epoch', 0)
+
     model.eval()
     criterion.eval()
 
@@ -106,8 +118,6 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessors,
     # metric_logger.add_meter('class_error', SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Test:'
     
-    epoch = kwargs.get('epoch', 0)
-
     # iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessors.keys())
     iou_types = postprocessors.iou_types
     coco_evaluator = CocoEvaluator(base_ds, iou_types)
@@ -226,8 +236,38 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessors,
             print(f"Epoch {epoch}: 开始记录评估指标到TensorBoard...")
             for iou_type in iou_types:
                 if iou_type in coco_evaluator.coco_eval:
-                    # 使用新的log_detection_metrics函数记录详细的检测指标
-                    tensorboard_logger.log_detection_metrics(coco_evaluator.coco_eval[iou_type], epoch)
+                    # 传入checkpoint_path参数，用于记录最佳模型
+                    tensorboard_logger.log_detection_metrics(
+                        coco_evaluator.coco_eval[iou_type], 
+                        epoch, 
+                        model_checkpoint=checkpoint_path
+                    )
+            
+            # 记录模型的效率指标(如果提供)
+            efficiency_metrics = kwargs.get('efficiency_metrics', {})
+            if efficiency_metrics:
+                tensorboard_logger.log_efficiency_metrics(efficiency_metrics, epoch)
+                
+            # 如果提供了基线指标(如YOLO结果)，进行比较
+            baseline_metrics = kwargs.get('baseline_metrics', None)
+            if baseline_metrics:
+                # 提取当前指标
+                current_metrics = {}
+                if 'bbox' in coco_evaluator.coco_eval:
+                    stats = coco_evaluator.coco_eval['bbox'].stats
+                    current_metrics = {
+                        'mAP': stats[0],
+                        'mAP_50': stats[1],
+                        'mAP_75': stats[2],
+                        'AR_max_100': stats[8]
+                    }
+                    
+                    # 添加效率指标
+                    if efficiency_metrics:
+                        current_metrics.update(efficiency_metrics)
+                        
+                    # 进行比较
+                    tensorboard_logger.compare_with_baseline(current_metrics, baseline_metrics, epoch)
             
             # 确保数据立即写入磁盘
             tensorboard_logger.flush()

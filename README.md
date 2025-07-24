@@ -1,5 +1,8 @@
-(smdetr) harrison@harrison-OMEN-by-HP-Laptop-15-dc1xxx:~/rtdetr_pytorch$ python ./tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml --log-dir logs/ssm_test
-
+nohup python ./tools/train.py \
+    --config configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+    --log-dir mainlog/baseline \
+    --model-name "DETR-R50" \
+    > main_terminal_log/baseline.log 2>&1 &
 ## TODO
 <details>
 <summary> see details </summary>

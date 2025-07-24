@@ -31,7 +31,15 @@ def main(args, ) -> None:
 
     # Initialize TensorBoard Logger before creating solver
     # This will be used by the solver to log metrics during training
-    cfg.tensorboard_logger = tb_logger.TensorboardLogger(log_dir=args.log_dir)
+    cfg.tensorboard_logger = tb_logger.TensorboardLogger(
+        log_dir=args.log_dir,
+        model_name=args.model_name
+    )
+    
+    # 如果提供了模型名称，存储到配置中方便其他地方使用
+    if args.model_name:
+        cfg.model_name = args.model_name
+    
     # 实例化DetSolver这个类，并且把cfg放进得到的solver对象里面
     solver = TASKS[cfg.yaml_cfg['task']](cfg)
     
@@ -54,6 +62,8 @@ if __name__ == '__main__':
     parser.add_argument('--amp', action='store_true', default=False,)
     parser.add_argument('--seed', type=int, help='seed',)
     parser.add_argument('--log-dir', type=str, default='logs', help='Directory for TensorBoard logs')
+    parser.add_argument('--model-name', type=str, default=None, 
+                        help='Model name for logging and comparison tables (e.g., SSM-DETR-Small)')
     args = parser.parse_args()
 
     main(args)

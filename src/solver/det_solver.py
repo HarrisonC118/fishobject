@@ -17,131 +17,193 @@ from .det_engine import train_one_epoch, evaluate
 class DetSolver(BaseSolver):
     
     def fit(self, ):
-        print("Start training")
         self.train()
-        # 又把传进来的配置文件变成args了，不理解，脱裤子放屁
-        args = self.cfg 
-        # 获取参数量，看看模型一共有多少参数要被训练
-        n_parameters = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        print('number of params:', n_parameters)
-        # 记录参数量到TensorBoard
-        if hasattr(self, 'tensorboard_logger') and self.tensorboard_logger is not None:
-            self.tensorboard_logger.log_metrics({'Params': n_parameters}, 0, prefix='model/')
-        print(f'Number of trainable parameters: {n_parameters}')
 
-        # 统计GFLOPs（需torchprofile或thop等工具，若无则占位）
-        try:
-            from thop import profile
-            dummy_input_gflops = torch.zeros((1, 3, 640, 640), device=next(self.model.parameters()).device)
-            flops, params_profile = profile(self.model, inputs=(dummy_input_gflops,), verbose=False)
-            gflops = flops / 1e9
-            if hasattr(self, 'tensorboard_logger') and self.tensorboard_logger is not None:
-                self.tensorboard_logger.log_metrics({'GFLOPs': gflops}, 0, prefix='model/')
-            print(f"Model GFLOPs: {gflops:.2f}")
-        except Exception as e:
-            print(f"GFLOPs calculation failed: {e}")
-        
-        if hasattr(self, 'tensorboard_logger') and self.tensorboard_logger is not None:
-            self.tensorboard_logger.log_model_info(self.model)
-        # Calculate and print other model static info
-        total_params = sum(p.numel() for p in self.model.parameters())
-        print(f"Model total parameters: {total_params}")
-        model_size_MB = sum(p.numel() * p.element_size() for p in self.model.parameters()) / (1024 * 1024)
-        print(f"Model size (MB): {model_size_MB:.2f}")
-
-        # 记录模型结构到TensorBoard
-        if hasattr(self, 'tensorboard_logger') and self.tensorboard_logger is not None and self.tensorboard_logger.enabled:
-            try:
-                print("\n正在记录模型结构到TensorBoard，这可能需要一些时间...")
-                # 确保模型处于评估模式，避免训练时的随机性影响图结构
-                self.model.eval()
-                
-                # 记录模型结构
-                self.tensorboard_logger.log_graph(self.model, input_shape=(1, 3, 640, 640))
-                
-                # 记录完后恢复到训练模式
-                self.model.train()
-                
-                print("模型结构记录完成！\n")
-            except Exception as e:
-                print(f"记录模型结构失败，但训练将继续: {e}")
-                import traceback
-                traceback.print_exc()
-
+        # get base dataset
         base_ds = get_coco_api_from_dataset(self.val_dataloader.dataset)
-        # best_stat = {'coco_eval_bbox': 0, 'coco_eval_masks': 0, 'epoch': -1, }
-        best_stat = {'epoch': -1, }
+
+        # 获取模型参数数量，优先使用dist.get_n_params函数，如果不存在则手动计算
+        try:
+            n_parameters = dist.get_n_params(self.model)
+        except AttributeError:
+            # 兼容旧版本，手动计算参数量
+            model = dist.de_parallel(self.model)  # 确保是实际模型而非DDP包装
+            n_parameters = sum(p.numel() for p in model.parameters())
+            print(f'模型参数总量: {n_parameters:,}')
+            
+        print('number of params:', n_parameters)
         
-        # 用于跟踪最佳检查点的列表，最多保存5个
-        best_checkpoints = []  # 格式: [(性能指标, epoch, 检查点路径)]
+        # 兼容拼写差异：epoches vs epochs
+        if not hasattr(self.cfg, 'epochs') and hasattr(self.cfg, 'epoches'):
+            self.cfg.epochs = self.cfg.epoches
+            print(f"注意：配置文件使用了'epoches'拼写，已自动转换为'epochs'={self.cfg.epochs}")
+            
+        # 确保eval_interval参数存在
+        if not hasattr(self.cfg, 'eval_interval'):
+            self.cfg.eval_interval = 1  # 默认每个epoch评估一次
+            print(f"注意：未设置'eval_interval'，默认为{self.cfg.eval_interval}")
+        
+        # 确保test_only参数存在    
+        if not hasattr(self.cfg, 'test_only'):
+            self.cfg.test_only = False
+            print("注意：未设置'test_only'，默认为False")
 
+        # 用于保存最佳检查点的记录
+        best_checkpoints = []
+        latest_checkpoint_path = None  # 最新的检查点路径
+
+        # NOTE 
+        # pytorch loss NaN https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html
+        # Avoid reintializing initialization cells
+        # print('self.last_epoch = ', self.last_epoch)
         start_time = time.time()
-        # !!开始训练!!
-        for epoch in range(self.last_epoch + 1, args.epoches):
-            # 分布式，不用管
-            if dist.is_dist_available_and_initialized():
-                self.train_dataloader.sampler.set_epoch(epoch)
-            # 正式开始第一轮训练
+        for epoch in range(self.last_epoch + 1, self.cfg.epochs + 1):
+            # if self.cfg.distributed:
+            #     self.train_dataloader.sampler.set_epoch(epoch)
+            
             train_stats = train_one_epoch(
-                self.model, self.criterion, self.train_dataloader, self.optimizer, self.device, epoch,
-                args.clip_max_norm, print_freq=args.log_step, ema=self.ema, scaler=self.scaler)
-            # 更新学习率
-            self.lr_scheduler.step()
-            
-            if self.output_dir:
-                # 始终保存最新的检查点
-                latest_checkpoint_path = self.output_dir / 'checkpoint.pth'
-                dist.save_on_master(self.state_dict(epoch), latest_checkpoint_path)
-                
-                # 每隔checkpoint_step保存一个检查点
-                # if (epoch + 1) % args.checkpoint_step == 0:
-                #     checkpoint_path = self.output_dir / f'checkpoint{epoch:04}.pth'
-                #     dist.save_on_master(self.state_dict(epoch), checkpoint_path)
-
-            module = self.ema.module if self.ema else self.model
-            test_stats, coco_evaluator = evaluate(
-                module, self.criterion, self.postprocessor, self.val_dataloader, base_ds, self.device, self.output_dir,
-                epoch=epoch, tensorboard_logger=self.tensorboard_logger
+                model=self.model,
+                criterion=self.criterion,
+                data_loader=self.train_dataloader,
+                optimizer=self.optimizer,
+                device=self.device,
+                epoch=epoch,
+                scaler=self.scaler,
+                max_norm=self.cfg.clip_max_norm,
+                cfg=self.cfg,  # 传递配置对象
             )
-
-            # 更新最佳统计信息
-            for k in test_stats.keys():
-                v = test_stats[k]
-                if isinstance(v, (list, tuple)):
-                    value = v[0]
-                else:
-                    value = v
-                if k in best_stat:
-                    best_stat['epoch'] = epoch if value > best_stat[k] else best_stat['epoch']
-                    best_stat[k] = max(best_stat[k], value)
-                else:
-                    best_stat['epoch'] = epoch
-                    best_stat[k] = value
-            print('best_stat: ', best_stat)
             
-            # 保存性能最好的检查点（基于coco_eval_bbox指标）
-            if 'coco_eval_bbox' in test_stats and dist.is_main_process():
-                # 使用mAP作为性能指标（COCO评估的第一个指标通常是mAP）
-                performance = test_stats['coco_eval_bbox'][0] if isinstance(test_stats['coco_eval_bbox'], (list, tuple)) else test_stats['coco_eval_bbox']
-                checkpoint_path = self.output_dir / f'checkpoint_best_{epoch:04}.pth'
+            if self.lr_scheduler:
+                self.lr_scheduler.step()
+            
+            # ema
+            if self.ema:
+                self.ema.update(self.model)  # 传递模型参数给update方法
+
+            if self.output_dir:
+                checkpoint_path = self.output_dir / f'checkpoint{epoch:04}.pth'
+                latest_checkpoint_path = checkpoint_path
+
+            # eval
+            if not self.cfg.test_only and epoch % self.cfg.eval_interval == 0:
+                module = self.ema.module if self.ema else self.model
                 
-                # 保存当前检查点
-                dist.save_on_master(self.state_dict(epoch), checkpoint_path)
+                # 计算效率指标(FPS等)用于与YOLO比较
+                efficiency_metrics = {}
+                if epoch % (self.cfg.eval_interval * 5) == 0:  # 减少频率以节省资源
+                    try:
+                        # 测量FPS
+                        with torch.no_grad():
+                            dummy_input = torch.randn(1, 3, 640, 640, device=self.device)
+                            
+                            # 预热
+                            for _ in range(10):
+                                _ = module(dummy_input)
+                                
+                            # 计时
+                            torch.cuda.synchronize()
+                            start = time.time()
+                            iterations = 50
+                            for _ in range(iterations):
+                                _ = module(dummy_input)
+                            torch.cuda.synchronize()
+                            end = time.time()
+                            
+                            # 计算FPS
+                            fps = iterations / (end - start)
+                            efficiency_metrics['fps'] = fps
+                            
+                            # 计算参数量(百万)
+                            params = sum(p.numel() for p in module.parameters()) / 1e6
+                            efficiency_metrics['params'] = params
+                            
+                            # 延迟(秒)
+                            efficiency_metrics['latency'] = (end - start) / iterations
+                            
+                            print(f"效率指标: FPS={fps:.2f}, 参数量={params:.2f}M, 延迟={efficiency_metrics['latency']*1000:.2f}ms")
+                    except Exception as e:
+                        print(f"计算效率指标失败: {e}")
                 
-                # 将当前检查点添加到最佳检查点列表
-                best_checkpoints.append((performance, epoch, checkpoint_path))
+                # 从环境变量或配置中获取YOLO基线指标
+                baseline_metrics = None
+                if hasattr(self.cfg, 'baseline_metrics'):
+                    baseline_metrics = self.cfg.baseline_metrics
                 
-                # 按性能指标排序（降序）
-                best_checkpoints.sort(reverse=True)
+                # 评估模型，传入当前检查点路径和效率指标
+                test_stats, coco_evaluator = evaluate(
+                    module, self.criterion, self.postprocessor,
+                    self.val_dataloader, base_ds, self.device, self.output_dir,
+                    epoch=epoch,
+                    tensorboard_logger=self.tensorboard_logger,
+                    checkpoint_path=checkpoint_path,
+                    efficiency_metrics=efficiency_metrics,
+                    baseline_metrics=baseline_metrics
+                )
                 
-                # 只保留前5个最佳检查点
-                if len(best_checkpoints) > 5:
-                    # 删除性能最差的检查点文件
-                    _, _, worst_checkpoint_path = best_checkpoints.pop()
-                    if worst_checkpoint_path.exists() and worst_checkpoint_path != latest_checkpoint_path:
-                        worst_checkpoint_path.unlink()
+                # 保存模型并计算性能指标
+                if self.output_dir and dist.is_main_process():
+                    # 确定性能指标 (使用mAP@0.5:0.95作为主要指标)
+                    if coco_evaluator and "bbox" in coco_evaluator.coco_eval:
+                        performance = coco_evaluator.coco_eval["bbox"].stats[0]
+                        
+                        # 如果是F1最优的模型，保存它
+                        mAP50 = coco_evaluator.coco_eval["bbox"].stats[1]  # IoU=0.5的AP
+                        AR = coco_evaluator.coco_eval["bbox"].stats[8]     # AR_max_100
+                        F1 = 2 * (mAP50 * AR) / (mAP50 + AR + 1e-6)
+                        
+                        if hasattr(self, 'tensorboard_logger') and self.tensorboard_logger is not None:
+                            # 保存最佳mAP和F1模型
+                            model_state = self.state_dict(epoch)
+                            model_info = {
+                                'epoch': epoch,
+                                'stats': {
+                                    'mAP': performance,
+                                    'mAP_50': mAP50,
+                                    'AR': AR,
+                                    'F1': F1
+                                }
+                            }
+                            
+                            # 保存最佳mAP模型
+                            self.tensorboard_logger.save_best_model(
+                                model_state, metric_name='mAP', model_info=model_info
+                            )
+                            
+                            # 保存最佳F1模型
+                            self.tensorboard_logger.save_best_model(
+                                model_state, metric_name='f1_score', model_info=model_info
+                            )
+                            
+                            # 保存最佳mAP_50模型 (与YOLO比较最重要的指标)
+                            self.tensorboard_logger.save_best_model(
+                                model_state, metric_name='mAP_50', model_info=model_info
+                            )
+                    else:
+                        performance = 0
                 
-                print(f"Best checkpoints: {[(p, e) for p, e, _ in best_checkpoints]}")
+                # 保存性能最好的检查点（基于coco_eval_bbox指标）
+                if 'coco_eval_bbox' in test_stats and dist.is_main_process():
+                    # 使用mAP作为性能指标（COCO评估的第一个指标通常是mAP）
+                    performance = test_stats['coco_eval_bbox'][0] if isinstance(test_stats['coco_eval_bbox'], (list, tuple)) else test_stats['coco_eval_bbox']
+                    checkpoint_path = self.output_dir / f'checkpoint_best_{epoch:04}.pth'
+                    
+                    # 保存当前检查点
+                    dist.save_on_master(self.state_dict(epoch), checkpoint_path)
+                    
+                    # 将当前检查点添加到最佳检查点列表
+                    best_checkpoints.append((performance, epoch, checkpoint_path))
+                    
+                    # 按性能指标排序（降序）
+                    best_checkpoints.sort(reverse=True)
+                    
+                    # 只保留前5个最佳检查点
+                    if len(best_checkpoints) > 5:
+                        # 删除性能最差的检查点文件
+                        _, _, worst_checkpoint_path = best_checkpoints.pop()
+                        if worst_checkpoint_path.exists() and worst_checkpoint_path != latest_checkpoint_path:
+                            worst_checkpoint_path.unlink()
+                    
+                    print(f"Best checkpoints: {[(p, e) for p, e, _ in best_checkpoints]}")
 
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
@@ -208,6 +270,33 @@ class DetSolver(BaseSolver):
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
         print('Training time {}'.format(total_time_str))
 
+        # 训练结束后，生成并保存性能指标表格（适用于论文）
+        if self.output_dir and dist.is_main_process() and hasattr(self, 'tensorboard_logger') and self.tensorboard_logger is not None:
+            print("\n正在生成性能指标表格（用于论文）...")
+            # 生成基本性能表格
+            table_path = self.output_dir / "performance_metrics"
+            self.tensorboard_logger.export_best_metrics_table(save_path=table_path, include_baseline=True)
+            
+            # 生成与YOLO的详细比较表格
+            # 如果配置中有YOLO相关指标，则添加到比较中
+            yolo_models = {}
+            if hasattr(self.cfg, 'comparison_models') and self.cfg.comparison_models:
+                for model_name, metrics in self.cfg.comparison_models.items():
+                    yolo_models[model_name] = metrics
+                    
+                # 如果有对比模型，生成详细比较表格
+                if yolo_models:
+                    compare_path = self.output_dir / "model_comparison"
+                    # 使用配置中的模型名称，如果存在的话
+                    model_name = getattr(self.cfg, 'model_name', "SSM-DETR (Ours)")
+                    self.tensorboard_logger.generate_paper_table(
+                        model_name,
+                        detection_metrics=self.tensorboard_logger.best_metrics,
+                        save_path=compare_path,
+                        compare_models=yolo_models
+                    )
+                    print(f"与其他模型的详细比较表格已保存至 {compare_path}.*")
+
 
     def val(self, ):
         self.eval()
@@ -221,5 +310,10 @@ class DetSolver(BaseSolver):
                 
         if self.output_dir:
             dist.save_on_master(coco_evaluator.coco_eval["bbox"].eval, self.output_dir / "eval.pth")
+            
+            # 验证后生成性能表格
+            if dist.is_main_process() and hasattr(self, 'tensorboard_logger') and self.tensorboard_logger is not None:
+                table_path = self.output_dir / "val_performance_metrics"
+                self.tensorboard_logger.export_best_metrics_table(save_path=table_path)
         
         return

@@ -92,6 +92,29 @@ def save_on_master(*args, **kwargs):
         torch.save(*args, **kwargs)
 
 
+def get_n_params(model):
+    """获取模型参数数量
+    
+    Args:
+        model (nn.Module): PyTorch模型
+    
+    Returns:
+        int: 参数总数
+        int: 可训练参数数量
+    """
+    # 确保获取实际模型而非DDP或DP包装
+    model = de_parallel(model)
+    
+    # 计算总参数量
+    n_parameters = sum(p.numel() for p in model.parameters())
+    
+    # 计算可训练参数量
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
+    print(f'模型参数总量: {n_parameters:,}, 可训练参数: {trainable_params:,}')
+    
+    return n_parameters
+
 
 def warp_model(model, find_unused_parameters=False, sync_bn=False,):
     if is_dist_available_and_initialized():

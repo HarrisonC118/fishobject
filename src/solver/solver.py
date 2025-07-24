@@ -49,17 +49,14 @@ class BaseSolver(object):
         self.scaler = cfg.scaler
         self.ema = cfg.ema.to(device) if cfg.ema is not None else None
             
-        # Log model graph to TensorBoard
-        # This will create a visual representation of the model architecture in GRAPHS tab
+        # 记录模型参数统计信息而不是图结构
         try:
-            # Get input shape from config or use default
-            input_shape = getattr(cfg, 'input_shape', (1, 3, 640, 640))
-            # Temporarily de-parallel the model for graph logging
-            model_for_graph = dist.de_parallel(self.model)
-            self.tensorboard_logger.log_graph(model_for_graph, input_shape=input_shape)
+            # Temporarily de-parallel the model
+            model_for_stats = dist.de_parallel(self.model)
+            self.tensorboard_logger.log_model_info(model_for_stats)
         except Exception as e:
-            print(f"Warning: Failed to log model graph: {e}")
-            # Continue execution even if graph logging fails
+            print(f"Warning: Failed to log model info: {e}")
+            # Continue execution even if logging fails
 
 
     def train(self, ):

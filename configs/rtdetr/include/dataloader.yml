@@ -19,7 +19,7 @@ train_dataloader:
         - {type: SanitizeBoundingBox, min_size: 1}  # 清理边界框，最小尺寸为1
         - {type: ConvertBox, out_fmt: 'cxcywh', normalize: True}  # 转换边界框格式为中心点宽高，并归一化
   shuffle: True  # 是否打乱数据
-  batch_size: 3  # 批量大小
+  batch_size: 4  # 批量大小
   num_workers: 4  # 工作线程数量
   collate_fn: default_collate_fn  # 数据整理函数
 
@@ -34,6 +34,6 @@ val_dataloader:
         - {type: ToImageTensor}  # 转换为图像张量
         - {type: ConvertDtype}  # 转换数据类型
   shuffle: False  # 验证集不打乱数据
-  batch_size: 3  # 验证集批量大小
+  batch_size: 1  # 验证集批量大小
   num_workers: 4  # 验证集工作线程数量
   collate_fn: default_collate_fn  # 验证集数据整理函数

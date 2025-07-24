@@ -9,13 +9,13 @@ train_dataloader:
   type: DataLoader
   dataset:
     type: CocoDetection
-    img_folder: /home/harrison/datasets/v3.0/images
-    ann_file: /home/harrison/datasets/v3.0/annotations/train.json
+    img_folder: /home/zhanghaochen/datasets/v3.0/images
+    ann_file: /home/zhanghaochen/datasets/v3.0/annotations/train.json
     transforms:
       type: Compose
       ops: ~
   shuffle: True
-  batch_size: 64
+  batch_size: 3
   num_workers: 4
   drop_last: True 
 
@@ -26,14 +26,14 @@ val_dataloader:
   type: DataLoader
   dataset: 
     type: CocoDetection
-    img_folder: /home/harrison/datasets/v3.0/images
-    ann_file: /home/harrison/datasets/v3.0/annotations/val.json
+    img_folder: /home/zhanghaochen/datasets/v3.0/images
+    ann_file: /home/zhanghaochen/datasets/v3.0/annotations/val.json
     transforms:
       type: Compose
       ops: ~ 
 
 
   shuffle: False
-  batch_size: 64
+  batch_size: 1
   num_workers: 4
   drop_last: False

@@ -25,10 +25,16 @@ class YAMLConfig(BaseConfig):
         self.log_step = cfg.get('log_step', 100)
         self.checkpoint_step = cfg.get('checkpoint_step', 1)
         self.epoches = cfg.get('epoches', -1)
+        # 同时设置epochs属性，保持与epoches一致
+        self.epochs = self.epoches  # 添加这行确保两个属性都可用
         self.resume = cfg.get('resume', '')
         self.tuning = cfg.get('tuning', '')
         self.sync_bn = cfg.get('sync_bn', False)
         self.output_dir = cfg.get('output_dir', None)
+        
+        # 评估相关参数
+        self.eval_interval = cfg.get('eval_interval', 1)  # 默认每个epoch评估一次
+        self.test_only = cfg.get('test_only', False)
         
         self.use_ema = cfg.get('use_ema', False)
         self.use_amp = cfg.get('use_amp', False)

@@ -1,0 +1,4 @@
+usage: train.py [-h] [--config CONFIG] [--resume RESUME] [--tuning TUNING]
+                [--test-only] [--amp] [--seed SEED] [--log-dir LOG_DIR]
+                [--model-name MODEL_NAME]
+train.py: error: unrecognized arguments: main_terminal_log/baseline.log
