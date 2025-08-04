@@ -54,7 +54,7 @@ HybridEncoder:
   pe_temperature: 10000
   
   # encoder type selection: 'transformer' or 'tokenwise_eblock'
-  encoder_type: 'transformer'  # 默认使用transformer，可切换为 'tokenwise_eblock'
+  encoder_type: 'tokenwise_eblock'  # 默认使用transformer，可切换为 'tokenwise_eblock'
   # TokenWiseEBlock specific parameters (only used when encoder_type='tokenwise_eblock')
   eblock_dilations: [1, 2, 3]  # 多分支膨胀率配置
   eblock_dw_expand: 2          # 通道扩展倍数

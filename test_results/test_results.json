@@ -1,0 +1,14 @@
+{
+  "model_metrics": {
+    "total_params": 43170915,
+    "trainable_params": 0,
+    "params_M": 43.170915,
+    "flops": 67976687872.0,
+    "gflops": 67.976687872,
+    "fps": 30.49168383971377,
+    "latency_ms": 32.79582738876343,
+    "memory_mb": 539.49853515625
+  },
+  "coco_metrics": {},
+  "timestamp": "2025-08-02 20:33:05"
+}

@@ -1,8 +1,14 @@
 nohup python ./tools/train.py \
     --config configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
-    --log-dir mainlog/DETR-R50-ASSM \
-    --model-name "DETR-R50-ASSM" \
-    > main_terminal_log/DETR-R50-ASSM.log 2>&1 &
+    --log-dir mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log \
+    --model-name "DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5]" \
+    > main_terminal_log/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log 2>&1 &
+
+nohup python ./tools/train.py \
+--config configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+--log-dir mainlog/DETR-R50.log \
+--model-name "DETR-R50" \
+> main_terminal_log/DETR-R50.log 2>&1 &
 ## TODO
 <details>
 <summary> see details </summary>

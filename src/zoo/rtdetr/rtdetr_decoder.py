@@ -266,9 +266,9 @@ class TransformerDecoderLayer(nn.Module):
         max_scores = torch.max(torch.softmax(
             score_logits, dim=-1), dim=-1)[0]  # [B, num_queries]
 
-        # 创建mask: area < 0.01 且 score < 0.2
-        area_mask = areas < 0.01
-        score_mask = max_scores < 0.2
+        # 创建mask: area < 0.05 且 score < 0.5
+        area_mask = areas < 0.05  # 放宽面积阈值到5%
+        score_mask = max_scores < 0.5  # 放宽置信度阈值到0.5
         small_target_mask = area_mask & score_mask
 
         return small_target_mask

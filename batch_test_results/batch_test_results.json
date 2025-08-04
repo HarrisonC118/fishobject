@@ -1,0 +1,56 @@
+[
+  {
+    "model_name": "best_mAP_50_model",
+    "model_path": "mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_mAP_50_model.pth",
+    "params_M": 43.170915,
+    "gflops": 67.976687872,
+    "fps": 30.603838409241096,
+    "extra_info": "epoch_0",
+    "status": "success"
+  },
+  {
+    "model_name": "best_mAP_model",
+    "model_path": "mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_mAP_model.pth",
+    "params_M": 43.170915,
+    "gflops": 67.976687872,
+    "fps": 30.551415261780576,
+    "extra_info": "epoch_0",
+    "status": "success"
+  },
+  {
+    "model_name": "best_f1_score_model",
+    "model_path": "mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_f1_score_model.pth",
+    "params_M": 43.170915,
+    "gflops": 67.976687872,
+    "fps": 30.756658693296064,
+    "extra_info": "epoch_0",
+    "status": "success"
+  },
+  {
+    "model_name": "best_mAP_50_model",
+    "model_path": "mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_mAP_50_model.pth",
+    "params_M": 43.170915,
+    "gflops": 67.976687872,
+    "fps": 30.71397868044912,
+    "extra_info": "epoch_0",
+    "status": "success"
+  },
+  {
+    "model_name": "best_mAP_model",
+    "model_path": "mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_mAP_model.pth",
+    "params_M": 43.170915,
+    "gflops": 67.976687872,
+    "fps": 30.629181783992532,
+    "extra_info": "epoch_0",
+    "status": "success"
+  },
+  {
+    "model_name": "best_f1_score_model",
+    "model_path": "mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_f1_score_model.pth",
+    "params_M": 43.170915,
+    "gflops": 67.976687872,
+    "fps": 30.773470407443792,
+    "extra_info": "epoch_0",
+    "status": "success"
+  }
+]

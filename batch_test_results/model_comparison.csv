@@ -1,0 +1,7 @@
+model_name,model_path,params_M,gflops,fps,extra_info,status
+best_f1_score_model,"mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_f1_score_model.pth",43.170915,67.976687872,30.773470407443792,epoch_0,success
+best_f1_score_model,"mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_f1_score_model.pth",43.170915,67.976687872,30.756658693296064,epoch_0,success
+best_mAP_50_model,"mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_mAP_50_model.pth",43.170915,67.976687872,30.71397868044912,epoch_0,success
+best_mAP_model,"mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_mAP_model.pth",43.170915,67.976687872,30.629181783992532,epoch_0,success
+best_mAP_50_model,"mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_mAP_50_model.pth",43.170915,67.976687872,30.603838409241096,epoch_0,success
+best_mAP_model,"mainlog/DETR-R50-TokenwiseEBlock-ASSM[0.05,0.5].log/best_models/best_mAP_model.pth",43.170915,67.976687872,30.551415261780576,epoch_0,success

@@ -1,0 +1,50 @@
+{
+  "comparison_data": [
+    {
+      "model": "SSM-DETR (R50-ASSM)",
+      "params_m": 43.17,
+      "gflops": 67.98,
+      "fps": 30.5,
+      "architecture": "Transformer-based",
+      "backbone": "ResNet50",
+      "type": "Research/Academic"
+    },
+    {
+      "model": "YOLOv8n",
+      "params_m": 3.01,
+      "gflops": 8.1,
+      "fps": 112.9,
+      "architecture": "CNN-based",
+      "backbone": "CSPDarknet",
+      "type": "Production/Deployment"
+    },
+    {
+      "model": "YOLO11n",
+      "params_m": 2.59,
+      "gflops": 6.5,
+      "fps": 72.1,
+      "architecture": "CNN-based",
+      "backbone": "Enhanced CSPDarknet",
+      "type": "Production/Deployment"
+    },
+    {
+      "model": "YOLO12n",
+      "params_m": 2.57,
+      "gflops": 6.4,
+      "fps": 44.4,
+      "architecture": "CNN-based",
+      "backbone": "Advanced CSPDarknet",
+      "type": "Production/Deployment"
+    }
+  ],
+  "analysis": {
+    "params_ratio": 15.851897184822523,
+    "fps_ratio": 2.5071038251366122,
+    "efficiency_ratio": 39.74235206774084
+  },
+  "conclusions": [
+    "SSM-DETR\u662f\u7814\u7a76\u578b\u6a21\u578b\uff0c\u53c2\u6570\u91cf\u5927\u4f46\u53ef\u80fd\u7cbe\u5ea6\u66f4\u9ad8",
+    "YOLO\u662f\u5de5\u4e1a\u7ea7\u6a21\u578b\uff0c\u8f7b\u91cf\u9ad8\u6548\u9002\u5408\u90e8\u7f72",
+    "\u4e24\u8005\u8bbe\u8ba1\u76ee\u6807\u4e0d\u540c\uff0c\u4e0d\u80fd\u7b80\u5355\u6bd4\u8f83\u4f18\u52a3"
+  ]
+}
